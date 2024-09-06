@@ -1,0 +1,8 @@
+.vs
+.vscode
+*.objdump
+*.x86
+*.obj
+*.exe
+*.pdb
+*.ilk
