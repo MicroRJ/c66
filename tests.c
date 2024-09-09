@@ -96,12 +96,12 @@ void tests() {
 	asm_store32_i(asm_rbp,+4,0xffffff);
 	asm_store64_i(asm_rbp,+4,0xffffff);
 	asm_loadq(asm_rax,asm_rbp,-4);
-	asm_store32(asm_rbp,-4,asm_rax);
-	asm_store64(asm_rbp,-4,asm_rax);
+	asm_stored(asm_rbp,-4,asm_rax);
+	asm_storeq(asm_rbp,-4,asm_rax);
 	asm_sub32(asm_rbp,asm_rax);
 	asm_add32(asm_rbp,asm_rax);
 	asm_sub64(asm_rbp,asm_rax);
-	asm_add64(asm_rbp,asm_rax);
+	asm_addq(asm_rbp,asm_rax);
 	asm_subdi(asm_rbp,32);
 	asm_subqi(asm_rbp,64);
 	#endif
@@ -110,7 +110,7 @@ void tests() {
 	asm_moveq(asm_rbp,asm_rsp);
 	asm_moveq(GPR_RDI,asm_rcx);
 	asm_store32_i(asm_rbp,+4,1);
-	asm_store32(asm_rbp,+4,asm_rcx);
+	asm_stored(asm_rbp,+4,asm_rcx);
 	asm_loadd(asm_rcx,asm_rbp,-4);
 	asm_loadi(asm_rax,1);
 	asm_cmpi(asm_rax,2);

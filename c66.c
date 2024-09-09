@@ -1,6 +1,6 @@
-// gcc       | gcc -g main.c -omain.exe && a.exe
-// msvc      | cl /nologo -Zi main.c -Femain.exe && a.exe
-// clang-cl  | clang-cl /nologo -Zi main.c -Femain.exe && a.exe
+// gcc       | gcc -g c66.c -oc66.exe
+// msvc      | cl /nologo -Zi c66.c -Fec66.exe
+// clang-cl  | clang-cl /nologo -Zi c66.c -Fec66.exe
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <malloc.h>
@@ -17,44 +17,37 @@ typedef unsigned char            u8;
 typedef int                      i32;
 
 
-/* simple dynamic array tool */
-typedef struct{
-	i32 max,min;
-} t_array;
+/* generic dynamic string/array tool */
+typedef struct{i32 max,min;}t_s;
 
+#define p2s(s) ((t_s*)(s))[-1]
+#define slen(s) ((s)?p2s(s).min:0)
+#define sfree(s) ((s)?(free(&p2s(s)),s=0),0:0)
+#define sgrow(s,n) (salloc((void**)&(s),sizeof(*s),n,n))
+#define sadd(s,x) do{int i=sgrow(s,1);s[i]=x;}while(0)
 
-#define ARRAY(D) ((t_array*)(D))[-1]
-#define ARRAY_MAX(D) ((D)?ARRAY(D).max:0)
-#define ARRAY_MIN(D) ((D)?ARRAY(D).min:0)
-
-#define ARRAY_LENGTH ARRAY_MIN
-#define ARRAY_FREE(D) ((D)?(free(&ARRAY(D)),D=0),0:0)
-#define ARRAY_POP(D) ((D)?ARRAY(D).min-=1:0)
-#define ARRAY_GROW(D,N) (array_alloc((void**)&(D),sizeof(*D),N,N))
-#define ARRAY_ADD(D,T) do { i32 X = ARRAY_GROW(D,1); D[X] = T; } while(0)
-
-int array_alloc(void **var,int per,int res,int com) {
-	t_array*arr=0;
+int salloc(void **v,int i,int r,int c){
+	t_s*s=0;
 	int max=0,min=0;
-	if (*var!=0){
-		arr=&ARRAY(*var);
-		max=arr->max;
-		min=arr->min;
+	if (*v!=0){
+		s=&p2s(*v);
+		max=s->max;
+		min=s->min;
 	}
-	if (max+res<com){
-		res+=(com-(max+res));
+	if (max+r<c){
+		r+=(c-(max+r));
 	}
-	if (min+res>max){
-		if(min+res>(max<<=1)){
-			max=min+res;
+	if (min+r>max){
+		if(min+r>(max<<=1)){
+			max=min+r;
 		}
-		arr=realloc(arr,sizeof(t_array)+per*max);
+		s=realloc(s,sizeof(t_s)+i*max);
 	}
-	if (arr!=0){
-		arr->max=max;
-		arr->min=min+com;
+	if (s!=0){
+		s->max=max;
+		s->min=min+c;
 	}
-	*var=arr+1;
+	*v=s+1;
 	return min;
 }
 
@@ -74,31 +67,76 @@ _(TOK_IF,"if")\
 _(TOK_FOR,"for")\
 _(TOK_RETURN,"return")
 
-/* expression/value descriptor
-	Reg: is a register, expression has
-	already been evaluated.
+/*
+	In a logical sense, an expression is ultimately
+	made up of two main parts, data and control.
+
+	'spec' refers stores data part, and 'cspec'
+	the control flow part.
+
+	Notes:
+	- A call to to expr will always return
+	data, use expr2 to get control and data.
+	- For any control expression, for instance
+	'a && b', the caller has to generate the
+	final jump, can be jz, jnz, use d2c before
+	hand.
+
+	- It is useful to keep boolean expressions
+	in a mixed state within the two, this allows
+	us to chain multiple control expressions
+	together efficiently, and use them effecively
+	contextually.
+	For instance, within a control structure, we
+	are primarly interested in the control flow
+	part of the expression.
+	Take 'if (a && b)...'
+
+	Here we don't want 'a && b' to end up evaluating
+	some data value in some register, to then have
+	to have the if stamement test once again and emit
+	additional jumps. (e.i convert data to control)
+
+	Instead we want the control of the expression to
+	route directly to the approiate clauses.
+
+	So in some cases we want control, in others data,
+	and sometimes we just have to convert between
+	the two.
+
+	But in principle, we want control structures to
+	take control, and data structures, to take data.
+
+
+	Spec types:
+	Jump: No data, means is part of the
+	control flow.
+	Reg: is a register, data is already within
+	a register, cannot be assignment.
+	Ptr: is also a register, however the register
+	holds a memory address, which can be assigned.
 	Var: is a stack based address, can
 	read and write to it.
-	Jump: is a boolean like expression represented
-	by a set of true and false jumps
 	Int: An actual integer
 	Proc: Any function pointer
-	Closure: A function pointer within another one
+	Closure: A function pointer from within
+	this program.
 */
-enum specty{Nil=0,Reg,Var,Jump,Str,Int,Proc,Closure};
-/* complementary jump list for the expression,
-(offsets) */
-typedef struct{
-	int *tj,*fj;
-}jset;
+enum specty{Nil=0,Jump,Reg,Var,Str,Int,Ptr,Proc,Closure};
 typedef struct{
 	enum specty type;
 	i64 info;
-	//like whether the expression set
-	//zf flag, for instance sub or cmp
-	//or test or any arithmetic op...
+	/* todo: like whether the expression set
+	zf flag, for instance sub or cmp */
 	int flags;
 }spec;
+
+/* control flow info for an expression,
+used for things like boolean expressions. */
+typedef struct{
+	int *tj,*fj;
+}cspec;
+
 enum{entity_nil=0,entity_fn,entity_param};
 typedef struct{
 	char*name;
@@ -130,11 +168,12 @@ static enum tokty tok;
 static i32 regs=asm_regs_gpr;
 static char gmem[1024];
 static i32 guse;
+
+
+int offs(){return(int)(xcur-xmem);}
+
 void gset(char x){gmem[guse++]=x;}
 char *gget(int x){return gmem+x;}
-
-
-
 
 void *procaddr(char *name){
 #if defined(_WIN32)
@@ -281,7 +320,7 @@ void lex(){retry:
 }
 int eat(int tk){return(tok==tk)?(lex(),1):0;}
 
-//(* register management *)
+/* register management */
 int reg2regs(int r){return 1<<r;}
 int usingregs(int r){return~regs&r;}
 int usingreg(asm_reg r){return~regs&reg2regs(r);}
@@ -290,16 +329,22 @@ void usereg(asm_reg r){
 	if(usingreg(r))err("already using register");
 	regs&=~reg2regs(r);
 }
-//(* spec *)
 int nil(spec*e){return(e->type==Nil);}
 int var(spec*e){return(e->type==Var);}
-int dig(spec*e){return(e->type==Int);}
+int ptr(spec*e){return(e->type==Ptr);}
 int reg(spec*e){return(e->type==Reg);}
 void dismiss(spec*e){
 	if(reg(e))freereg(inf(e));
 	// set(e,0,0);
 }
-void spec2reg(spec*e,asm_reg r){
+/* patch a jump string */
+void pjs(int *j){int i;
+	for(i=0;i<slen(j);i++){
+		((i32*)(xmem+j[i]))[-1]=(xcur-xmem)-j[i];
+	}
+}
+/* data to register */
+void d2reg(spec*e,asm_reg r){
 	if(reg(e))return;
 	if(r<0||r>=asm_num_gpr_regs)err("invalid argument");
 	if(usingreg(r))err("register already in use");
@@ -314,17 +359,45 @@ void spec2reg(spec*e,asm_reg r){
 	}
 	set(e,Reg,r);
 }
-/* assuming all jumps are of
-the same kind */
-void patch(int *j){int i;
-	for(i=0;i<ARRAY_LENGTH(j);i++){
-		((i32*)(xmem+j[i]))[-1]=(xcur-xmem)-j[i];
+/* data to control */
+void d2c(spec *e){
+	if(ty(e)!=Jump){
+		d2reg(e,asm_rax);
+		if(!reg(e)||inf(e)!=asm_rax)err("impossible");
+		asm_cmpi(asm_rax,0);
+		dismiss(e);
+		set(e,Jump,0);
 	}
 }
-void unary(spec*e,jset*js);
-void expr2(spec*x,jset*js,int flags,int u);
+/* control to data */
+void c2d(spec*e,cspec c){
+	if((c.tj)||(c.fj)){
+		if(reg(e)&&inf(e)!=asm_rax)err("impossible");
+		d2reg(e,asm_rax);
+		if(!reg(e)||inf(e)!=asm_rax)err("impossible");
+		asm_cmpi(asm_rax,0);
+		dismiss(e);
+		asm_jz(0);
+		sadd(c.fj,offs());
+
+		pjs(c.tj);
+		asm_loadi(asm_rax,1);
+		asm_jmp(0);
+		u8 *j=xcur;
+		pjs(c.fj);
+		asm_loadi(asm_rax,0);
+		((i32*)j)[-1]=xcur-j;
+		sfree(c.tj);
+		sfree(c.fj);
+		usereg(asm_rax);
+		set(e,Reg,asm_rax);
+	}
+}
+void unary(spec*e,cspec*js);
+void expr2(spec*x,cspec*js,int flags,int u);
+void expr(spec*e,int flags,int u);
 /* "Do I Look Like A Carry A Pencil", Blitz, Jason Statham */
-void unary(spec*e,jset*js){
+void unary(spec*e,cspec*js){
 	set(e,Nil,0);
 	if(!tok)goto esc;
 	switch(tok){
@@ -333,14 +406,15 @@ void unary(spec*e,jset*js){
 			if(tok==')')lex();
 			else err("expected ')'");
 		}break;
-		case'-':{lex();
+		case'-':{
+			lex();
 			unary(e,js);
-			spec2reg(e,asm_rcx);
+			d2reg(e,asm_rcx);
 			asm_loadi(asm_rax,0);
 			asm_sub32(asm_rax,asm_rcx);
+			freereg(asm_rcx);
 			set(e,Reg,asm_rax);
 			usereg(asm_rax);
-			freereg(asm_rcx);
 		}break;
 		case TOK_NAME:{
 			entity en;
@@ -363,14 +437,18 @@ void unary(spec*e,jset*js){
 		}break;
 		default:;
 	}
-	if(tok=='('){lex();
+
+	retry:
+	if(eat('(')){
 		if(ty(e)!=Closure&&ty(e)!=Proc){
 			err("expected function");
 		}
-		asm_subqi(asm_rsp,40);
 		if(usingregs(asm_regs_arg)){
 			err("invalid memory state, not all arg registers are available");
 		}
+
+		asm_subqi(asm_rsp,40);
+
 		int stat,i=0;
 		stat=regs;
 		spec y;
@@ -379,11 +457,11 @@ void unary(spec*e,jset*js){
 				err("too many arguments, max of 4");
 			}
 			/* todo: handle this properly */
-			jset _js={0};
+			cspec _js={0};
 			unary(&y,&_js);
 			if(nil(&y))goto esc;
 
-			spec2reg(&y,asm_arg_regs_list[i++]);
+			d2reg(&y,asm_arg_regs_list[i++]);
 
 			if(tok==',')lex();
 			else break;
@@ -404,8 +482,17 @@ void unary(spec*e,jset*js){
 
 		usereg(asm_rax);
 		set(e,Reg,asm_rax);
-		if(tok==')')lex();
-		else err("expected ')'");
+		if(!eat(')'))err("expected ')'");
+		goto retry;
+	}else if(eat('[')){spec y;
+		expr(&y,0,0);
+		if(!eat(']'))err("expected ']'");
+		d2reg(&y,asm_rax);
+		d2reg(e,asm_rcx);
+		asm_addq(asm_rcx,asm_rax);
+		set(e,Ptr,asm_rcx);
+		dismiss(&y);
+		goto retry;
 	}
 	esc:;
 }
@@ -416,69 +503,38 @@ int prec(int t){
 	if(t=='*'||t=='/'||t=='%')return 4;
 	return-1;
 }
-int offs(){return(int)(xcur-xmem);}
-/* convert some expression
-to a jump expression */
-void spec2jump(spec*e){
-	if(ty(e)!=Jump){
-		spec2reg(e,asm_rax);
-		if(!reg(e)||inf(e)!=asm_rax)err("impossible");
-		asm_cmpi(asm_rax,0);
-		dismiss(e);
-		set(e,Jump,0);
-	}
-}
 void expr(spec*e,int flags,int u){
-	jset js={0};
-	expr2(e,&js,flags,u);
-
-	if((js.tj)||(js.fj)){
-		if(reg(e)&&inf(e)!=asm_rax)err("impossible");
-		spec2reg(e,asm_rax);
-		if(!reg(e)||inf(e)!=asm_rax)err("impossible");
-		asm_cmpi(asm_rax,0);
-		dismiss(e);
-		asm_jz(0);
-		ARRAY_ADD(js.fj,offs());
-
-		patch(js.tj);
-		asm_loadi(asm_rax,1);
-		asm_jmp(0);
-		u8 *j=xcur;
-		patch(js.fj);
-		asm_loadi(asm_rax,0);
-		((i32*)j)[-1]=xcur-j;
-		ARRAY_FREE(js.tj);
-		ARRAY_FREE(js.fj);
-		usereg(asm_rax);
-		set(e,Reg,asm_rax);
-	}
+	cspec c={0};
+	expr2(e,&c,flags,u);
+	c2d(e,c);
 }
-void expr2(spec*x,jset*js,int flags,int u){
+void expr2(spec*x,cspec*c,int flags,int u){
 	int o;
 
-	unary(x,js);
+	unary(x,c);
 	if(nil(x))goto esc;
 
 	/* > left associative, >= right associative */
 	while(prec(o=tok)>u){
 		lex();
-		/* todo: avoid compares when expression
+		/*
+		todo: this system does not work
+		well with precedence parsing...
+		todo: avoid compares when expression
 		sets the zf flag, '1-1' '1==1' */
-		if(o==TOK_LOR){
-			spec2jump(x)  ;
-			asm_jnz(0)    ; ARRAY_ADD(js->tj,offs());
-			patch(js->fj) ; ARRAY_FREE(js->fj);
-			expr2(x,js,flags,prec(o));
+		if(o==TOK_LOR){spec y;
+			d2c(x)     ;
+			asm_jnz(0) ; sadd(c->tj,offs());
+			pjs(c->fj) ; sfree(c->fj);
+			expr2(x,c,flags,prec(o));
 			if(nil(x))goto esc;
 		}else if(o==TOK_LAND){
-			spec2jump(x)  ;
-			asm_jz(0)     ; ARRAY_ADD(js->fj,offs());
-			patch(js->tj) ; ARRAY_FREE(js->tj);
-			expr2(x,js,flags,prec(o));
+			d2c(x)     ;
+			asm_jz(0)  ; sadd(c->fj,offs());
+			pjs(c->tj) ; sfree(c->tj);
+			expr2(x,c,flags,prec(o));
 			if(nil(x))goto esc;
 		} else {spec y;
-
 			expr(&y,flags,prec(o));
 			if(nil(&y))goto esc;
 
@@ -486,13 +542,13 @@ void expr2(spec*x,jset*js,int flags,int u){
 				err("impossible");
 			}
 			if(!reg(x)){
-				if(!usingreg(asm_rax))spec2reg(x,asm_rax);
-				else if(!usingreg(asm_rcx))spec2reg(x,asm_rcx);
+				if(!usingreg(asm_rax))d2reg(x,asm_rax);
+				else if(!usingreg(asm_rcx))d2reg(x,asm_rcx);
 				else err("expression too complex");
 			}
 			if(!reg(&y)){
-				if(!usingreg(asm_rax))spec2reg(&y,asm_rax);
-				else if(!usingreg(asm_rcx))spec2reg(&y,asm_rcx);
+				if(!usingreg(asm_rax))d2reg(&y,asm_rax);
+				else if(!usingreg(asm_rcx))d2reg(&y,asm_rcx);
 				else err("expression too complex");
 			}
 			if(!reg(x))err("impossible");
@@ -511,17 +567,17 @@ void expr2(spec*x,jset*js,int flags,int u){
 	of all expressions, hence here */
 	if(tok=='='){spec y;
 		lex();
-		if(!var(x)){
-			err("expected variable (a...z)");
-		}
+		if(!var(x)&&!ptr(x))err("invalid l-value");
+
 		expr(&y,0,0);
-		if(reg(&y)&&(inf(&y)!=asm_rax)){
-			err("impossible");
+		if(reg(&y)&&(inf(&y)!=asm_rax))err("expression too complex");
+
+		d2reg(&y,asm_rax);
+		if(var(x)){
+			asm_stored(asm_rbp,-sizeof(int)*(inf(x)+1),inf(&y));
+		}else{
+			asm_stored(inf(x),0,inf(&y));
 		}
-		if(!reg(&y)){
-			spec2reg(&y,asm_rax);
-		}
-		asm_store32(asm_rbp,-sizeof(int)*(inf(x)+1),inf(&y));
 		*x=y;
 	}
 	esc:;
@@ -544,7 +600,7 @@ void stat(){int save;
 			lex();
 			if(tok!=';'){
 				expr(&e,0,0);
-				spec2reg(&e,asm_rax);
+				d2reg(&e,asm_rax);
 				dismiss(&e);
 			}
 			asm_pop(asm_rbp);
@@ -576,7 +632,7 @@ void stat(){int save;
 				if(strlen(name)>1)err("variable name cannot be greater than 1");
 				/* register where the param comes from */
 				int r=asm_arg_regs_list[arity++];
-				asm_store32(asm_rbp,-sizeof(int)*((name[0]-'a')+1),r);
+				asm_stored(asm_rbp,-sizeof(int)*((name[0]-'a')+1),r);
 				#if 0
 				name=malloc(strlen((char*)toki)+1);
 				memcpy(name,(char*)toki,strlen((char*)toki)+1);
@@ -608,7 +664,7 @@ void stat(){int save;
 
 			l0=xcur;
 			expr(&e,0,0);
-			spec2reg(&e,asm_rax);
+			d2reg(&e,asm_rax);
 
 			asm_cmpi(inf(&e),0);
 			asm_jz(0);
@@ -637,20 +693,18 @@ void stat(){int save;
 			// regs=save;
 		}break;
 		case TOK_IF:{spec e;
+			cspec c={0};
 			lex();
 			if(tok!='(')err("expected '('");else lex();
-			save=regs;
-			expr(&e,0,0);
-			regs=save;
-			spec2reg(&e,asm_rax);
-			asm_cmpi(asm_rax,0);
-			asm_jz(0);
-			u8 *temp=xcur;
-			freereg(asm_rax);
+			expr2(&e,&c,0,0);
 			if(nil(&e))goto esc;
 			if(tok!=')')err("expected ')'");else lex();
+			d2c(&e);
+			asm_jz(0);
+			sadd(c.fj,offs());
+			pjs(c.tj);
 			stat();
-			((i32*)temp)[-1]=xcur-temp;
+			pjs(c.fj);
 		}break;
 		default:{spec e;
 			save=regs;

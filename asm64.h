@@ -73,40 +73,19 @@ offset, x is reg field, y is r/m field */
 addressing, where both the reg, and r/m fields are
 registers. */
 #define moder(x,y) MODRM(0xC0,x,y)
-
 #define mode8(x,y) MODRM(0x40,x,y)
 #define mode16(x,y) MODRM(0x80,x,y)
-
-
-/*
-** SIB.Scale 2bits
-** SIB.Index 3bits (register)
-** SIB.Base  3bits (register)
-*/
-#define SIB(x,y,z) (((x) << 6)|((y) << 3)|((z) << 0))
-
-
-
-
-/* both push and pop are single byte instructions,
-starting at a base offset plus the register to
-create actual instruction */
-/* store instructions move data from (src) register
-to to target memory, at address specified by base
-register (dst) and an offset (off). */
-/* store 32 or 64 bit value (src) at target address in
-base register (dst) plus one byte offset (off) */
-/* opposite of store */
-/* note that the lower 3 bits of opcode are used to
-encode the target register, and the payload is the
-same size as the register. */
-
-
+#define asm_store32_i(dst,off,src) (o(0xC7),o(mode8(0,dst)),o(off),asm_i(src,4))
+#define asm_store64_i(dst,off,src) (o(REX_W),asm_store32_i(dst,off,src))
+#define asm_add64_i(x,y) (o(REX_W),o(0x81),o(moder(0x00,x)),asm_i(y,4))
+#define asm_sub32(x,y) (asm_o(0x2B),asm_o(moder(x,y)))
+#define asm_sub64(x,y) (o(REX_W),asm_sub32(x,y))
+#define asm_add32(x,y) (asm_o(0x03),asm_o(moder(x,y)))
+#define asm_addq(x,y) (o(REX_W),asm_add32(x,y))
 
 
 void asm_o(int y);
 void asm_i(asm_i64 x,int y);
-
 void asm_err(char *msg){
 	fputs(msg,stderr);
 }
@@ -114,12 +93,6 @@ void asm_push(int reg){int flags;
 	flags=reg>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x50+(reg&7));
-}
-/* todo: replace with intrinsic */
-void asm_pushall(){int i;
-	for(i=0;i<asm_num_gpr_regs;i++){
-		asm_push(i);
-	}
 }
 void asm_pop(int reg){
 	asm_o(0x58+reg);
@@ -138,18 +111,6 @@ void asm_call(asm_reg reg){
 	asm_o(0xFF);
 	asm_o(0xC0|0x02<<3|reg&7);
 }
-#define asm_store32(dst,off,src) (asm_o(0x89),asm_o(mode8(src,dst)),asm_o(off))
-#define asm_store64(dst,off,src) (o(REX_W),asm_store32(dst,off,src))
-#define asm_store32_i(dst,off,src) (o(0xC7),o(mode8(0,dst)),o(off),asm_i(src,4))
-#define asm_store64_i(dst,off,src) (o(REX_W),asm_store32_i(dst,off,src))
-
-
-void asm_move(asm_reg dst,asm_reg src,int flags);
-void asm_moveq(asm_reg dst,asm_reg src);
-void asm_test(asm_reg dst,asm_reg src,int flags);
-void asm_testq(asm_reg dst,asm_reg src);
-
-
 void asm_test(asm_reg dst,asm_reg src,int flags){
 	flags|=src>>1&4|dst>>3&1;
 	if(flags)asm_o(REX|flags);
@@ -169,6 +130,19 @@ void asm_load(asm_reg dst,asm_reg src,asm_i32 off,int flags){
 	asm_o(0x8B);
 	asm_o(0x40|(dst&7)<<3|src&7);
 	asm_o(off);
+}
+void asm_store(asm_reg dst,asm_i32 off,asm_reg src,int flags){
+	flags|=src>>1&4|dst>>3&1;
+	if(flags)asm_o(REX|flags);
+	asm_o(0x89);
+	asm_o(0x40|(src&7)<<3|dst&7);
+	asm_o(off);
+}
+void asm_stored(asm_reg dst,asm_i32 off,asm_reg src){
+	asm_store(dst,off,src,0);
+}
+void asm_storeq(asm_reg dst,asm_i32 off,asm_reg src){
+	asm_store(dst,off,src,REX_W);
 }
 void asm_loadd(asm_reg dst,asm_reg src,asm_reg off){
 	asm_load(dst,src,off,0);
@@ -201,22 +175,11 @@ void asm_subdi(asm_reg dst,asm_reg src){
 void asm_subqi(asm_reg dst,asm_reg src){
 	return asm_subi(dst,src,REX_W);
 }
-
-
-#define asm_add64_i(x,y) (o(REX_W),o(0x81),o(moder(0x00,x)),asm_i(y,4))
-
-#define asm_sub32(x,y) (asm_o(0x2B),asm_o(moder(x,y)))
-#define asm_sub64(x,y) (o(REX_W),asm_sub32(x,y))
-
-#define asm_add32(x,y) (asm_o(0x03),asm_o(moder(x,y)))
-#define asm_add64(x,y) (o(REX_W),asm_add32(x,y))
-
 void asm_cmpi(asm_reg reg,asm_i32 src){
 	asm_o(0x81);
 	asm_o(0xC0|0x07<<3|reg&7);
 	asm_i(src,4);
 }
-//(* jumps *)
 void asm_jmp(asm_i32 rel){
 	asm_o(0xE9);
 	asm_i(rel,4);
@@ -281,3 +244,29 @@ SIB byte.
 if r/m > 101 the displacement is the memory
 address, otherwise no displacement is used.
 */
+
+
+/*
+** SIB.Scale 2bits
+** SIB.Index 3bits (register)
+** SIB.Base  3bits (register)
+*/
+#define SIB(x,y,z) (((x) << 6)|((y) << 3)|((z) << 0))
+
+
+
+
+/* both push and pop are single byte instructions,
+starting at a base offset plus the register to
+create actual instruction */
+/* store instructions move data from (src) register
+to to target memory, at address specified by base
+register (dst) and an offset (off). */
+/* store 32 or 64 bit value (src) at target address in
+base register (dst) plus one byte offset (off) */
+/* opposite of store */
+/* note that the lower 3 bits of opcode are used to
+encode the target register, and the payload is the
+same size as the register. */
+
+

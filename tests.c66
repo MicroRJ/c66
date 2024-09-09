@@ -1,36 +1,43 @@
-a=(0||0)&&1;
-printf("0: %i (&& || interplay test)\n",a);
-a=(1||0)&&1;
-printf("1: %i (&& || interplay test)\n",a);
-a=0||0||0||0||1;
-printf("1: %i (|| test)\n",a);
-a=1||0||0||0||0;
-printf("1: %i (|| test)\n",a);
-a=1&&0&&0;
-printf("0: %i (&& test)\n",a);
-a=0&&0&&1;
-printf("0: %i (&& test)\n",a);
+a=malloc(1024);
+a[1]=1;
+// printf("malloc: %x\n",a);
 
-printf("0: %i\n",0);
-printf("1: %i\n",1);
-printf("3: %i\n",3);
-printf("7: %i\n",7);
-printf("10: %i\n",10);
-printf("100: %i\n",100);
-printf("777: %i\n",777);
 
-void identity(a){return a;}
+// if(1&&3||7)printf("well done...\n");
 
-a=identity(3);
-printf("3: %i (call test)\n",a);
-a=identity(7);
-printf("7: %i (call test)\n",a);
+// a=(0||0)&&1;
+// printf("0: %i (&& || interplay test)\n",a);
+// a=(1||0)&&1;
+// printf("1: %i (&& || interplay test)\n",a);
+// a=0||0||0||0||1;
+// printf("1: %i (|| test)\n",a);
+// a=1||0||0||0||0;
+// printf("1: %i (|| test)\n",a);
+// a=1&&0&&0;
+// printf("0: %i (&& test)\n",a);
+// a=0&&0&&1;
+// printf("0: %i (&& test)\n",a);
 
-for(a=10;a;a=a-1);
-printf("0: %i (loop test)\n",a);
+// printf("0: %i\n",0);
+// printf("1: %i\n",1);
+// printf("3: %i\n",3);
+// printf("7: %i\n",7);
+// printf("10: %i\n",10);
+// printf("100: %i\n",100);
+// printf("777: %i\n",777);
 
-if(1)printf("1: 1 (if test)\n");
-if(0)printf("0: 1 (if test) [failed]\n");
+// void identity(a){return a;}
+
+// a=identity(3);
+// printf("3: %i (call test)\n",a);
+// a=identity(7);
+// printf("7: %i (call test)\n",a);
+
+// for(a=10;a;a=a-1);
+// printf("0: %i (loop test)\n",a);
+
+// if(1)printf("1: 1 (if test)\n");
+// if(0)printf("0: 1 (if test) [failed]\n");
 
 
 
