@@ -1,0 +1,13 @@
+
+
+void test_switch(void){
+	int i;
+	switch(i){
+		case 7:
+		break;
+		case 3:
+		break;
+		case 11:
+		break;
+	}
+}

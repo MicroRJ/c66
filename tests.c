@@ -26,9 +26,9 @@ DEFTEST(moves){
 	asm_moveq(asm_r15,asm_rax);
 }
 DEFTEST(loads){
-	asm_loadi(asm_rax,32);
-	asm_loadi(asm_r8,32);
-	asm_loadi(asm_r8,1llu<<32);
+	asm_loadqi(asm_rax,32);
+	asm_loadqi(asm_r8,32);
+	asm_loadqi(asm_r8,1llu<<32);
 	asm_loadq(asm_rax,asm_rbp,-4);
 	asm_loadq(asm_r15,asm_rbp,-128);
 	// asm_load(asm_rax,asm_rbp,-4,32);
@@ -42,9 +42,9 @@ DEFTEST(registers){int i;
 	}
 }
 DEFTEST(call_foo){
-	asm_loadi(asm_rcx,3);
-	asm_loadi(GPR_RDX,7);
-	asm_loadi(asm_rax,(i64)foo);
+	asm_loadqi(asm_rcx,3);
+	asm_loadqi(asm_rdx,7);
+	asm_loadqi(asm_rax,(i64)foo);
 	asm_call(asm_rax);
 }
 void tests() {
@@ -64,19 +64,19 @@ void tests() {
 	}
 	if(0){
 		/* store immediate */
-		asm_loadi(asm_rcx,3);
-		asm_loadi(GPR_RDX,7);
+		asm_loadqi(asm_rcx,3);
+		asm_loadqi(asm_rdx,7);
 	}
 	if(0){
 		/* store and load */
-		asm_store32_i(asm_rbp,-8,3);
-		asm_store32_i(asm_rbp,-4,7);
+		asm_storedi(asm_rbp,-8,3);
+		asm_storedi(asm_rbp,-4,7);
 		asm_loadd(asm_rcx,asm_rbp,-8);
-		asm_loadd(GPR_RDX,asm_rbp,-4);
+		asm_loadd(asm_rdx,asm_rbp,-4);
 	}
 	if(0){
 		/* call foo */
-		asm_loadi(asm_rax,(i64)foo);
+		asm_loadqi(asm_rax,(i64)foo);
 		asm_call(asm_rax);
 	}
 	if(0){
@@ -89,18 +89,18 @@ void tests() {
 	#endif
 
    #if 0
-	asm_loadi(asm_rax,0xffffff);
-	asm_loadi(asm_rax,0xffffffffff);
+	asm_loadqi(asm_rax,0xffffff);
+	asm_loadqi(asm_rax,0xffffffffff);
 	asm_moveq(asm_rbp,asm_rsp);
 	asm_move32(asm_rbp,asm_rsp);
-	asm_store32_i(asm_rbp,+4,0xffffff);
-	asm_store64_i(asm_rbp,+4,0xffffff);
+	asm_storedi(asm_rbp,+4,0xffffff);
+	asm_storeqi(asm_rbp,+4,0xffffff);
 	asm_loadq(asm_rax,asm_rbp,-4);
 	asm_stored(asm_rbp,-4,asm_rax);
 	asm_storeq(asm_rbp,-4,asm_rax);
-	asm_sub32(asm_rbp,asm_rax);
-	asm_add32(asm_rbp,asm_rax);
-	asm_sub64(asm_rbp,asm_rax);
+	asm_subd(asm_rbp,asm_rax);
+	asm_addd(asm_rbp,asm_rax);
+	asm_subq(asm_rbp,asm_rax);
 	asm_addq(asm_rbp,asm_rax);
 	asm_subdi(asm_rbp,32);
 	asm_subqi(asm_rbp,64);
@@ -109,16 +109,16 @@ void tests() {
 	asm_push_rbp();
 	asm_moveq(asm_rbp,asm_rsp);
 	asm_moveq(GPR_RDI,asm_rcx);
-	asm_store32_i(asm_rbp,+4,1);
+	asm_storedi(asm_rbp,+4,1);
 	asm_stored(asm_rbp,+4,asm_rcx);
 	asm_loadd(asm_rcx,asm_rbp,-4);
-	asm_loadi(asm_rax,1);
+	asm_loadqi(asm_rax,1);
 	asm_cmpi(asm_rax,2);
 	asm_jl(/*self*/5+1);
 	asm_subdi(asm_rax,777);
-	asm_sub32(asm_rax,asm_rcx);
-	asm_add32(asm_rax,asm_rcx);
-	asm_loadi(asm_rax,(i64)&foo);
+	asm_subd(asm_rax,asm_rcx);
+	asm_addd(asm_rax,asm_rcx);
+	asm_loadqi(asm_rax,(i64)&foo);
 	asm_call(asm_rax);
 	asm_move32(asm_rax,GPR_RDI);
 	asm_pop_rbp();
