@@ -36,11 +36,9 @@ enum tokty{
 
 /* Cond: No data, means the expression is a
 	comparison of sorts e.i a < b, see asm_cc.
-	Reg: registers holds data.
-	Ptr: register holds memory address.
-	Var: actual memory offset, relative to
-	rsp pointer.
-	Int: An actual integer.
+	Reg: data is in register.
+	Var: offset from rsp, local variable.
+	Const: data itself.
 	tj and fj are true and false jump strings,
 	used for bypassing or short-circuiting
 	some arbitrary expression. e.i
@@ -50,10 +48,12 @@ enum tokty{
 	to the false branch of an if statement.
 	'1 || 2', '2' has one true gate, ditto.
 */
-enum specty{Nil=0,Cond,Reg,Var,Str,Int,Ptr,Proc,Closure};
+enum dataty{DT_NIL,DT_INT,DT_PTR,DT_PROC,DT_STR};
+enum specty{Nil=0,Cond,Reg,Var,Glob,Const};
 typedef struct{
 	enum specty type;
-	i64 info;
+	enum dataty data;
+	i64  info;
 	int flags;
 	int *tj,*fj;
 }spec;
@@ -269,18 +269,19 @@ void usereg(asm_reg r){
 }
 /* expression/values */
 int ty(spec*e){return e->type;}
+int dty(spec*e){return e->data;}
 i64 inf(spec*e){return e->info;}
-void set(spec*e,i32 type,i64 info){
-	e->type=type,e->info=info;
+void set(spec*e,enum specty type,enum dataty data,i64 info){
+	e->type=type,e->data=data,e->info=info;
 	e->flags=0;
 }
 int noj(spec*e){return(!e->fj&&!e->tj);}
 int nil(spec*e){return(e->type==Nil);}
 int var(spec*e){return(e->type==Var);}
-int ptr(spec*e){return(e->type==Ptr);}
 int reg(spec*e){return(e->type==Reg);}
+int ptr(spec*e){return(e->data==DT_PTR);}
 void dismiss(spec*e){
-	if(reg(e)||ptr(e))freereg(inf(e));
+	if(reg(e))freereg(inf(e));
 }
 /* entities */
 void decl(char*name,int type,i64 info){
@@ -581,7 +582,7 @@ void e2cc(spec*e){
 		if(!reg(e)||inf(e)!=asm_rax)err("impossible");
 		asm_cmpi(asm_rax,0);
 		dismiss(e);
-		set(e,Cond,asm_cc_z);
+		set(e,Cond,DT_INT,asm_cc_z);
 	}
 }
 void ejz(spec*e){
@@ -604,7 +605,6 @@ void go2(label l){
 }
 void prune(spec*e){
 	/* use setcc when dst branch is cmp */
-	// ((1+!e->tj-!e->fj)>>1);
 	if(ty(e)==Cond&&e->fj&&!e->tj){
 		place(e,asm_rax);
 		dismiss(e);
@@ -613,7 +613,7 @@ void prune(spec*e){
 		usereg(asm_rax);
 		asm_loadqi(asm_rax,0);
 		patch(j);
-		set(e,Reg,asm_rax);
+		set(e,Reg,DT_INT,asm_rax);
 	}else if(ty(e)==Cond&&!e->fj&&e->tj){
 		place(e,asm_rax);
 		dismiss(e);
@@ -622,7 +622,7 @@ void prune(spec*e){
 		usereg(asm_rax);
 		asm_loadqi(asm_rax,1);
 		patch(j);
-		set(e,Reg,asm_rax);
+		set(e,Reg,DT_INT,asm_rax);
 	}else if(e->tj||e->fj){else_:
 		ejz(e);
 		pjs(e->tj);
@@ -632,40 +632,51 @@ void prune(spec*e){
 		pjs(e->fj);
 		asm_loadqi(asm_rax,0);
 		patch(j);
-		set(e,Reg,asm_rax);
+		set(e,Reg,DT_INT,asm_rax);
 	}
 	if(e->tj)sfree(e->tj);
 	if(e->fj)sfree(e->fj);
 }
 void place(spec*e,asm_reg r){
 	if(r<0||r>=asm_num_gpr_regs)err("invalid argument");
-	if(reg(e)||ptr(e))return;
+	if(reg(e))return;
 	usereg(r);
 	if(ty(e)==Cond){
 		asm_scc(r,asm_icc(inf(e)));
-	}else if(ty(e)==Ptr){
-		asm_loadq(r,inf(e),0);
-	}else if(ty(e)==Str){
-		asm_loadqi(r,(i64)gget(inf(e)));
-	}else if(ty(e)==Var){
-		asm_loadq(r,asm_rbp,inf(e));
-	}else if(ty(e)==Int||ty(e)==Closure||ty(e)==Proc){
-		asm_loadqi(r,inf(e));
 	}
-	set(e,Reg,r);
+	#if 0
+	else if(ty(e)==Ptr){
+		asm_loadq(r,inf(e),0);
+	/* todo: rename Str to Glob */
+	}
+	#endif
+	else if(ty(e)==Glob){
+		err("impossible");
+		if(dty(e)==DT_STR){
+			asm_loadqi(r,(i64)gget(inf(e)));
+		}else err("impossible");
+	}else if(ty(e)==Var){
+		if(dty(e)==DT_PTR){
+			asm_loadq(r,asm_rbp,inf(e));
+		}else err("impossible");
+	}else if(ty(e)==Const){
+		/* 64-bits or less */
+		asm_loadqi(r,inf(e));
+	}else err("impossible");
+	set(e,Reg,e->data,r);
 }
 void merge(spec*x,spec y){
 	int i;
 	for(i=0;i<slen(y.fj);i++)sadd(x->fj,y.fj[i]);
 	for(i=0;i<slen(y.tj);i++)sadd(x->tj,y.tj[i]);
-	set(x,y.type,y.info);
+	set(x,y.type,y.data,y.info);
 }
 void unary(spec*e);
 void asisexpr(spec*x,int flags,int u);
 void expr(spec*e,int flags,int u);
 /* "Do I Look Like A Carry A Pencil", Blitz, Jason Statham */
 void unary(spec*e){
-	set(e,Nil,0);
+	set(e,Nil,DT_NIL,0);
 	if(!tok)goto esc;
 	switch(tok){
 		case'&':{
@@ -674,7 +685,7 @@ void unary(spec*e){
 			if(!var(e))err("invalid l-value");
 			usereg(asm_rax);
 			asm_leaq(asm_rax,asm_rbp,inf(e));
-			set(e,Reg,asm_rax);
+			set(e,Reg,DT_PTR,asm_rax);
 		}break;
 		case'(':{
 			lex();
@@ -684,42 +695,43 @@ void unary(spec*e){
 		case'-':{
 			lex();
 			unary(e);
-			if(ty(e)!=Int){
+			if(ty(e)==Const&&dty(e)==DT_INT){
+				set(e,Const,DT_INT,-inf(e));
+			}else{
 				place(e,asm_rcx);
 				asm_loadqi(asm_rax,0);
 				asm_subq(asm_rax,asm_rcx);
 				dismiss(e);
-				set(e,Reg,asm_rax);
 				usereg(asm_rax);
-			}else{
-				set(e,Int,-inf(e));
+				set(e,Reg,e->data,asm_rax);
 			}
 		}break;
 		case TOK_sizeof:{
 			expr(e,0,0);
-			if(ty(e)==Str){
-				set(e,Int,strlen((char*)inf(e))+1);
+			/* todo: global strings */
+			if(ty(e)==Const&&dty(e)==DT_STR){
+				set(e,Const,DT_INT,strlen((char*)inf(e))+1);
 			}else{
-				set(e,Int,VARSIZE);
+				set(e,Const,DT_INT,VARSIZE);
 			}
 			dismiss(e);
 		}break;
 		case TOK_NAME:{
-			set(e,Var,getvoff(toks[0]));
+			set(e,Var,DT_PTR,getvoff(toks[0]));
 			entity en=getentity(toks);
 			if(en.type!=entity_nil){
-				set(e,Closure,en.info);
+				set(e,Const,DT_PROC,en.info);
 			} else if(strlen((toks))>1){
-				set(e,Proc,(i64)getproc(toks));
+				set(e,Const,DT_PROC,(i64)getproc(toks));
 			}
 			lex();
 		}break;
 		case TOK_INT:{
-			set(e,Int,toki);
+			set(e,Const,DT_INT,toki);
 			lex();
 		}break;
 		case TOK_STR:{
-			set(e,Str,toki);
+			set(e,Const,DT_STR,(i64)toks);
 			lex();
 		}break;
 		default:;
@@ -727,9 +739,9 @@ void unary(spec*e){
 	/* rusty nail is in the area, Joy Ride */
 	retry:
 	if(eat('(')){
-		// if(ty(e)!=Closure&&ty(e)!=Proc){
-		// 	err("expected function");
-		// }
+		if(dty(e)!=DT_PROC){
+			err("not a function");
+		}
 		if(usingregs(asm_regs_args)){
 			err("invalid memory state, not all argument registers are available");
 		}
@@ -752,23 +764,11 @@ void unary(spec*e){
 			if(!eat(','))break;
 		}
 		regs=stat;
-#if 0
-		if(ty(e)==Closure){
-			asm_jcall(0);
-			((i32*)xcur)[-1]=(u8*)inf(e)-xcur;
-		}else{
-#endif
 		place(e,asm_rax);
-		// asm_loadqi(asm_rax,inf(e));
 		asm_call(asm_rax);
 		dismiss(e);
-#if 0
-		}
-#endif
-		// asm_addqi(asm_rsp,40);
-
 		usereg(asm_rax);
-		set(e,Reg,asm_rax);
+		set(e,Reg,DT_INT,asm_rax);
 		if(!eat(')'))err("expected ')'");
 		goto retry;
 	}else if(eat('[')){
@@ -778,7 +778,7 @@ void unary(spec*e){
 		place(&y,asm_rax);
 		place(e,asm_rcx);
 		asm_addq(asm_rcx,asm_rax);
-		set(e,Ptr,asm_rcx);
+		set(e,Reg,DT_PTR,asm_rcx);
 		dismiss(&y);
 		goto retry;
 	}
@@ -855,7 +855,7 @@ void asisexpr(spec*x,int flags,int u){
 				asm_cmpq(inf(x),inf(&y));
 				dismiss(x);
 				dismiss(&y);
-				set(x,Cond,o=='<'?asm_cc_ge:asm_cc_le);
+				set(x,Cond,DT_INT,o=='<'?asm_cc_ge:asm_cc_le);
 			}else{
 				if(o==TOK_SHR){
 					asm_shrq(asm_rax);
@@ -869,22 +869,22 @@ void asisexpr(spec*x,int flags,int u){
 					asm_addq(asm_rax,asm_rcx);
 				}else err("impossible");
 				freereg(asm_rcx);
-				set(x,Reg,asm_rax);
+				set(x,Reg,x->data,asm_rax);
 			}
 		}
 	}
 	/* right associative, hence here */
 	if(tok=='='){
 		lex();
-		if(!var(x)&&!ptr(x))err("invalid l-value");
+		if(!ptr(x))err("invalid l-value");
 		spec y={};
 		asisexpr(&y,0,0);
-		if(var(x)&&noj(&y)&&ty(&y)==Int){
+		if(var(x)&&noj(&y)&&ty(&y)==Const&&dty(&y)==DT_INT){
 			asm_storeqi(asm_rbp,inf(x),inf(&y));
 		}else{
 			prune(&y);
 			place(&y,asm_rax);
-			if(!reg(&y)&&!ptr(&y))err("impossible");
+			if(!reg(&y))err("impossible");
 			if(var(x)){
 				asm_storeq(asm_rbp,inf(x),inf(&y));
 			}else{
