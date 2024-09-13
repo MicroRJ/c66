@@ -10,108 +10,54 @@
 #include <process.h>
 #endif
 
-#include "test_switch.c66"
 
 typedef signed long long int     i64;
 typedef unsigned long long int   u64;
 typedef unsigned char            u8;
 typedef int                      i32;
+typedef struct{i32 max,min;}S;
+
 #define VARSIZE sizeof(i64)
 
-/* generic dynamic string/array tool */
-typedef struct{i32 max,min;}t_s;
 
-#define sss(s) ((t_s*)(s))[-1]
-#define slen(s) ((s)?sss(s).min:0)
-#define sfree(s) ((s)?(free(&sss(s)),s=0),0:0)
-#define sgrow(s,n) (salloc((void**)&(s),sizeof(*s),n,n))
-#define sadd(s,x) do{int i=sgrow(s,1);s[i]=x;}while(0)
+/* set of all the keywords we support */
+#define KWSET(_) _(sizeof)_(if)_(for)_(return)_(void)_(unsigned)_(signed)_(long)_(int)_(float)_(double)
 
-int salloc(void **v,int i,int r,int c){
-	t_s*s=0;
-	int max=0,min=0;
-	if (*v!=0){
-		s=&sss(*v);
-		max=s->max;
-		min=s->min;
-	}
-	if (max+r<c){
-		r+=(c-(max+r));
-	}
-	if (min+r>max){
-		if(min+r>(max<<=1)){
-			max=min+r;
-		}
-		s=realloc(s,sizeof(t_s)+i*max);
-	}
-	if (s!=0){
-		s->max=max;
-		s->min=min+c;
-	}
-	*v=s+1;
-	return min;
-}
-
-
-/* all other tokens are ascii */
-enum tokty {
-	TOK_NONE=-1,
-	TOK_NAME=0x80,TOK_INT,TOK_STR,
-	TOK_COL2,
-	TOK_LAND,TOK_LOR,
-	TOK_if,TOK_for,TOK_return,TOK_sizeof,
-	TOK_void,TOK_unsigned,TOK_signed,TOK_long,TOK_int,TOK_float,TOK_double,
+/* all other single char punctuator
+are their ascii values */
+enum tokty{
+	TOK_EOF=0,TOK_NAME=0x80,TOK_INT,TOK_STR,
+	TOK_COL2,TOK_SHL,TOK_SHR,TOK_LAND,TOK_LOR,
+#define KW(NAME) TOK_##NAME,
+	KWSET(KW)
+#undef KW
 };
 
 
-#define KWDEF(_) \
-_(TOK_sizeof,"sizeof")\
-_(TOK_if,"if")\
-_(TOK_for,"for")\
-_(TOK_return,"return")\
-_(TOK_void,"void")\
-_(TOK_unsigned,"unsigned")\
-_(TOK_signed,"signed")\
-_(TOK_long,"long")\
-_(TOK_int,"int")\
-_(TOK_float,"float")\
-_(TOK_double,"double")
-
-#define MCDEF(_) \
-_(MACRO___LINE__,"__LINE__",(tok=TOK_INT,toki=fline))\
-_(MACRO___FUNC__,"__func__",(tok=TOK_STR,toki=(i64)"no function"))\
-_(MACRO___FILE__,"__FILE__",(tok=TOK_STR,toki=(i64)"no file"))\
-_(MACRO___DATE__,"__DATE__",(tok=TOK_STR,toki=(i64)"no date"))
-
-/*
-	Jcc: No data, means the expression is a control
-	condition, the control condition should jump
-	when false, so the inverse of the original
-	condition is used instead: !(a < b) == (a >= b).
-
-	Reg: is a register, data is already within
-	a register, cannot be assignment.
-	Ptr: is also a register, however the register
-	holds a memory address, which can be assigned.
-	Var: is a stack based address, can
-	read and write to it.
-	Int: An actual integer
-	Proc: Any function pointer
-	Closure: A function pointer from within
-	this program.
+/* Cond: No data, means the expression is a
+	comparison of sorts e.i a < b, see asm_cc.
+	Reg: registers holds data.
+	Ptr: register holds memory address.
+	Var: actual memory offset, relative to
+	rsp pointer.
+	Int: An actual integer.
+	tj and fj are true and false jump strings,
+	used for bypassing or short-circuiting
+	some arbitrary expression. e.i
+	'1 && 2', '2' has one false gate, because
+	where 1 to be false, the entire expression
+	would be false. this jump could be patched
+	to the false branch of an if statement.
+	'1 || 2', '2' has one true gate, ditto.
 */
-enum specty{Nil=0,Jcc,Reg,Var,Str,Int,Ptr,Proc,Closure};
+enum specty{Nil=0,Cond,Reg,Var,Str,Int,Ptr,Proc,Closure};
 typedef struct{
 	enum specty type;
 	i64 info;
-	/* todo: like whether the expression set
-	zf flag, for instance sub or cmp */
 	int flags;
 	int *tj,*fj;
 }spec;
-typedef struct{
-	int *tj,*fj;
-}cspec;
+
 
 enum{entity_nil=0,entity_fn,entity_param};
 typedef struct{
@@ -121,51 +67,68 @@ typedef struct{
 }entity;
 
 
-//(* globals  *)
-
-/* input stream */
-static char *inb,*in;
-
-/*simple macro system (todo: implement hashtable)*/
 typedef struct{
 	char*name;
 	char*repl;
 	char**args;
 }macro;
-static macro *macros;
 
+static macro *macros;
 /* executable memory */
 static u8*xmem,*xcur;
+/* temporary storage & permanent/global storage */
+static char tmem[4096];
+static char gmem[4096];
+static i32 tuse,guse;
+/* input base and input cursor */
+static char *inb,*in;
+/* token starting and ending position in
+stream, string value, integer value and
+type, for this and the next token */
+static char*tokc,*ntokc;
+static char*toke,*ntoke;
+static char*toks,*ntoks;
+static i64  toki,ntoki;
+static int  tok,ntok;
+/* current line, function, file & date */
+static int fline=1;
+static char *ffunc;
+static char *ffile;
+static char *fdate;
+/* entity storage */
+static entity entities[32];
 
+/* current function state, tracked
+locally, see 'function' */
+static i32 regs=asm_regs_gpr;
+static int nentities;
+static int xstack;
+
+/* platform stuff */
 #if defined(_WIN32)
 HMODULE msvcrt;
 HMODULE kernel32;
 HMODULE user32;
 #endif
 
-static char toks[64];
-static char*tokc;
-static i64  toki;
-static int  tok;/*tokty*/
 
-static i32 regs=asm_regs_gpr;
 
-static char gmem[4096];
-static i32 guse;
-static int fline=1;
-static char *ffunc;
-static char *ffile;
-static char *fdate;
-
-static entity entities[32];
-static int nentities;
-
-int offs(){return(int)(xcur-xmem);}
-
-void gset(char x){gmem[guse++]=x;}
-char *gget(int x){return gmem+x;}
-
-void *procaddr(char *name){
+/* platform functions */
+i64 getclockfreq() {
+#if defined(_WIN32)
+	LARGE_INTEGER x;
+	QueryPerformanceFrequency(&x);
+	return x.QuadPart;
+#endif
+}
+i64 getclocktime() {
+#if defined(_WIN32)
+	LARGE_INTEGER i;
+	QueryPerformanceCounter(&i);
+	return i.QuadPart;
+#endif
+}
+void *getproc(char *name){
 #if defined(_WIN32)
 	void *addr;
 	addr=GetProcAddress(msvcrt,name);
@@ -176,12 +139,12 @@ void *procaddr(char *name){
 	return dlsym(0,name);
 #endif
 }
-//(* bit scan forward *)
-int bsf(int b){int i;
-	if(b)for(i=0;i<32;i++)if(b&1<<i)return i;
-	return-1;
+u8 *execalloc(int size) {
+#if defined(_WIN32)
+	return VirtualAlloc(NULL,size,MEM_RESERVE|MEM_COMMIT,PAGE_EXECUTE_READWRITE);
+#endif
 }
-char *ftext(char *name){char *data;
+char *gettextf(char *name){char *data;
 	FILE *file;
 	int size;
 	data=0;
@@ -197,18 +160,11 @@ char *ftext(char *name){char *data;
 	esc:
 	return data;
 }
-void o(u8 x){*xcur++=(u8)x;}
-void i(i64 x,int n){while(n--)o(x),x>>=8;}
-void asm_i(asm_i64 x,int n){i(x,n);}
-void asm_o(asm_i32 x){o(x);}
 
-#if defined(_WIN32)
-u8 *execalloc(int size) {
-	return VirtualAlloc(NULL,size,MEM_RESERVE|MEM_COMMIT,PAGE_EXECUTE_READWRITE);
-}
-#endif
 
+/* basic error handling */
 #define err(note) err_(note,__LINE__)
+
 void err_(char const *note, int line){
 #if 1
 	printf("%.*s\n",(int)(tokc-inb),inb);
@@ -219,16 +175,115 @@ void err_(char const *note, int line){
 #endif
 	exit(line);
 }
+
+/* basic memory routines */
+int xget(){
+	return(int)(xcur-xmem);
+}
+void xput(u8 x){
+	*xcur++=(u8)x;
+}
+void xputs(i64 x,int n){
+	while(n--)xput(x),x>>=8;
+}
+/* these functions are used by the assembler */
+void asm_i(asm_i64 x,int n){
+	xputs(x,n);
+}
+void asm_o(asm_i32 x){
+	xput(x);
+}
+void tput(char x){
+	if(tuse>=sizeof(tmem)){
+		err("not implemented, fixup allocations");
+	}
+	// tuse&=sizeof(tmem)-1;
+	tmem[tuse++]=x;
+}
+char *tget(){
+	return tmem+tuse;
+}
+void gset(char x){
+	gmem[guse++]=x;
+}
+char *gget(int x){
+	return gmem+x;
+}
+/* convert to permanent/global string */
+char *gs(char*s){
+	char *g=gmem+guse;
+	memcpy(g,s,strlen(s)+1);
+	guse+=strlen(s)+1;
+	return g;
+}
+
+
+/* basic dynamic string tool, may or may not
+be too portable */
+#define slen(s) ((s)?((S*)(s))[-1].min:0)
+#define sfree(s) ((s)?(free(&((S*)(s))[-1]),s=0),0:0)
+#define sgrow(s,n) (sget((void**)&(s),sizeof(*s),n,n))
+#define sadd(s,x) do{int i=sgrow(s,1);s[i]=x;}while(0)
+
+int sget(void **v,int i,int r,int c){
+	S*s=0;
+	int max=0;
+	int min=0;
+	if (*v!=0){
+		s=&((S*)*v)[-1];
+		max=s->max;
+		min=s->min;
+	}
+	if (max+r<c){
+		r+=(c-(max+r));
+	}
+	if (min+r>max){
+		if(min+r>(max<<=1)){
+			max=min+r;
+		}
+		s=realloc(s,sizeof(S)+i*max);
+	}
+	if (s!=0){
+		s->max=max;
+		s->min=min+c;
+	}
+	*v=s+1;
+	return min;
+}
+//(* bit scan forward tool *)
+int bsf(int b){int i;
+	if(b)for(i=0;i<32;i++)if(b&1<<i)return i;
+	return-1;
+}
+int getvoff(char letter){
+	return -VARSIZE*(letter-'a'+1);
+}
+/* register management */
+int reg2regs(int r){return 1<<r;}
+int usingregs(int r){return~regs&r;}
+int usingreg(asm_reg r){return~regs&reg2regs(r);}
+void freereg(asm_reg r){regs|=reg2regs(r);}
+void usereg(asm_reg r){
+	if(usingreg(r))err("register already in use");
+	regs&=~reg2regs(r);
+}
 /* expression/values */
 int ty(spec*e){return e->type;}
 i64 inf(spec*e){return e->info;}
 void set(spec*e,i32 type,i64 info){
 	e->type=type,e->info=info;
 	e->flags=0;
-	e->fj=e->tj=0;
+}
+int noj(spec*e){return(!e->fj&&!e->tj);}
+int nil(spec*e){return(e->type==Nil);}
+int var(spec*e){return(e->type==Var);}
+int ptr(spec*e){return(e->type==Ptr);}
+int reg(spec*e){return(e->type==Reg);}
+void dismiss(spec*e){
+	if(reg(e)||ptr(e))freereg(inf(e));
 }
 /* entities */
-void newentity(char*name,int type,i64 info){
+void decl(char*name,int type,i64 info){
 	entities[nentities].name=name;
 	entities[nentities].type=type;
 	entities[nentities].info=info;
@@ -243,7 +298,7 @@ entity getentity(char*name){int i;
 	return(entity){0};
 }
 /* get a single character */
-int inp(){
+int cget(){
 	if(*in=='\r'){
 		in++;
 		if(*in=='\n')in++;
@@ -251,90 +306,140 @@ int inp(){
 		return '\n';
 	}else if(*in=='\n'){
 		fline++;
-		return '\n';
 	}
 	return *in++;
 }
+/* map alphanumeric ascii chars to a continuous
+range 0..36 */
+//0..9 => 0..9
+//A..Z => 10..35
+//a..z => 10..35
+//_ => 36
 int cmap(char a){
+	if(a>='0'&&a<='9')return a-'0';
 	if(a>='a'&&a<='z')return 10+a-'a';
 	if(a>='A'&&a<='Z')return 10+a-'A';
 	if(a=='_')return 36;
-	if(a>='0'&&a<='9')return a-'0';
 	return -1;
 }
 /* get a single basic token, no keywords or macro
 expansions, only punctuator, ids, numbers and
-the likes, toks and toki are updated accordingly,
-strings are not added to globals. */
+the likes, strings and names are in temporary storage*/
 void scan(){retry:
-	while((*in==' ')||(*in=='\t')||(*in=='\n')||(*in=='\r'))inp();
-	tokc=in;
+	while((*in==' ')||(*in=='\t')||(*in=='\n')||(*in=='\r'))cget();
+
+	tokc=ntokc;
+	toke=ntoke;
+	toks=ntoks;
+	toki=ntoki;
+	tok =ntok;
+
+	ntokc=in;
 	switch(*in){
 		case '0'...'9':{
-			toki=0;
+			ntoki=0;
 			do{
-				toki*=10;
-				toki+=cmap(inp());
+				ntoki*=10;
+				ntoki+=cmap(cget());
 			}while(*in>='0'&&*in<='9');
-			tok=TOK_INT;
+			ntok=TOK_INT;
 		}break;
 		case '\'':{
-			inp();
-			tok=TOK_INT;
-			toki=inp();
-			if(inp()!='\'')err("expected '\''");
+			cget();
+			ntok=TOK_INT;
+			ntoki=cget();
+			// while(*in!='\''){
+			// 	ntoki<<=8;
+			// 	ntoki|=cget();
+			// }
+			if(cget()!='\'')err("expected '\''");
 		}break;
 		case'_':case 'A'...'Z':case 'a'...'z':{
-			memset(toks,0,sizeof(toks));
-			char*s=toks;
-			do{*s++=inp();
-			}while(cmap(*in)!=-1);
-			tok=TOK_NAME;
-			toki=(i64)toks;
+			if((sizeof(tmem)-tuse)<128){
+				tuse=0;
+			}
+			ntoks=tget();
+			do tput(cget());
+			while(cmap(*in)!=-1);
+			tput(0);
+			ntok=TOK_NAME;
+			ntoki=(i64)ntoks;
 		}break;
 		case '"':{
-			inp();
-			memset(toks,0,sizeof(toks));
-			char*s=toks;
-			while((*in!='\0')&&(*in!='"')){char c;
-				if((c=inp())=='\\'){
-					if(*in=='n')c='\n';
-					else err("invalid escape letter");
-					inp();
-				}
-				*s++=c;
+			if((sizeof(tmem)-tuse)<128){
+				tuse=0;
 			}
-			*s++=0;
+			cget();
+			ntoks=tget();
+			while((*in!='\0')&&(*in!='"')){
+				if(*in=='\\'){
+					cget();
+					if(*in=='x'||*in=='0'){
+						int i=0;
+						cget();
+						int b=16>>(*in=='0');
+						if(b==16&&cmap(*in)==-1){
+							err("\\x used with no following hex digits");
+						}
+						while((cmap(*in)>=0)&&(cmap(*in)<b)){
+							i*=b;
+							i+=cmap(cget());
+						}
+						tput(i);
+					}else if(*in=='r'){
+						cget();
+						tput('\r');
+					}else if(*in=='n'){
+						cget();
+						tput('\n');
+					}else{
+						err("unknown escape sequence");
+					}
+
+				}else{
+					tput(cget());
+				}
+			}
+			tput(0);
 			if(*in!='"')err("expected '\"'");
-			inp();
-			tok=TOK_STR;
-			toki=(i64)toks;
+			cget();
+			ntok=TOK_STR;
+			ntoki=(i64)ntoks;
 		}break;
 		case '/':{
 			if(in[1]=='/'){
 				while(*in!='\0'&&*in!='\r'&&*in!='\n'){
-					inp();
+					cget();
 				}
 				goto retry;
 			}else goto def;
 		}break;
+		case'<':{
+			ntok=cget();
+			if(*in=='<')ntok=TOK_SHL,cget();
+		}break;
+		case'>':{
+			ntok=cget();
+			if(*in=='>')ntok=TOK_SHR,cget();
+		}break;
 		case':':{
-			tok=inp();
-			if(*in==':')tok=TOK_COL2,inp();
+			ntok=cget();
+			if(*in==':')ntok=TOK_COL2,cget();
 		}break;
 		case'&':{
-			tok=inp();
-			if(*in=='&')tok=TOK_LAND,inp();
+			ntok=cget();
+			if(*in=='&')ntok=TOK_LAND,cget();
 		}break;
 		case'|':{
-			tok=inp();
-			if(*in=='|')tok=TOK_LOR,inp();
+			ntok=cget();
+			if(*in=='|')ntok=TOK_LOR,cget();
 		}break;
 		default:{def:
-			tok=inp();
+			ntok=cget();
 		}break;
 	}
 	esc:;
+	ntoke=in;
 }
 char *pp(char **args,char *string){
 	/* todo: to be implemented */
@@ -342,212 +447,251 @@ char *pp(char **args,char *string){
 }
 void lex(){retry:
 	scan();
-	switch(tok){
+	switch(ntok){
 		case TOK_STR:{
-			int len=strlen(toks);
-			toki=guse;
-			memcpy(gmem+guse,toks,len+1);
+			int len=strlen(ntoks);
+			ntoki=guse;
+			memcpy(gmem+guse,ntoks,len+1);
 			guse+=len+1;
 		}break;
 		/* convert to macro or keyword */
 		case TOK_NAME:{
 			for(int i=0;i<slen(macros);i++){
-				if(!strcmp(macros[i].name,toks)){
+				if(!strcmp(macros[i].name,ntoks)){
 					// char *repl=pp(macros[i].args,macros[i].repl);
 					// ins(repl);
 					goto esc;
 				}
 			}
-			//yes...
-			#define MC(macro,name,def) if(!strcmp(toks,name))def;else
-			MCDEF(MC)
-			#undef MC
-			#define KW(tk,name) if(!strcmp(toks,name))tok=tk;else
-			KWDEF(KW) ;
-			#undef KW
+			/* few builtin macros */
+			if(!strcmp(ntoks,"__LINE__"))(ntok=TOK_INT,ntoki=fline);
+			else if(!strcmp(ntoks,"__FUNC__"))(ntok=TOK_STR,ntoki=(i64)(ntoks="no function"));
+			else if(!strcmp(ntoks,"__FILE__"))(ntok=TOK_STR,ntoki=(i64)(ntoks="no file"));
+			else if(!strcmp(ntoks,"__DATE__"))(ntok=TOK_STR,ntoki=(i64)(ntoks="no date"));
+			else{
+				#define KW(NAME) if(!strcmp(ntoks,#NAME))ntok=TOK_##NAME;else
+				KWSET(KW) ;
+				#undef KW
+			}
 		}break;
 		case'#':{
+			enum{
+				d_invalid=-1,
+				d_define,
+				d_if,
+				d_endif
+			};
+			int type=d_invalid;
 			char**args=0;
 			char *repl=0;
 			char *name=0;
 			scan();
-			if(tok!=TOK_NAME){
+			if(ntok!=TOK_NAME){
 				err("invalid preprocessing directive");
 			}
-			if(strcmp(toks,"define")){
-				err("invalid preprocessing directive");
-			}
-			scan();
-			if(tok!=TOK_NAME){
-				err("macro name must be an identifier");
-			}
-			if(strlen(toks)){
-				for(int i=0;i<slen(macros);i++){
-					if(!strcmp(macros[i].name,toks)){
-						err("macro redefinition");
-					}
-				}
-			}else err("macro name missing");
+			if(!strcmp(ntoks,"define")){
+				type=d_define;
 
-			name=malloc(strlen(toks)+1);
-			strcpy(name,toks);
-
-			scan();
-
-			if(tok=='('){
 				scan();
-				while(tok!=')'){
-					if(tok!=TOK_NAME){
-						err("invalid token in macro parameter list");
-					}
-
-					char *arg=malloc(strlen(toks)+1);
-					strcpy(arg,toks);
-					sadd(args,arg);
-
-					scan();
-
-					if(tok!=',')break;
-					scan();
+				if(ntok!=TOK_NAME){
+					err("macro name must be an identifier");
 				}
-				if(tok!=')')err("expected ')'");
-			}
-			if(*in!=' '){
-				err("whitespace required after macro name");
-			}
-			inp();
+				if(*ntoke!='('&&*ntoke!=' '){
+					err("whitespace required after macro name");
+				}
+				if(strlen(ntoks)){
+					for(int i=0;i<slen(macros);i++){
+						if(!strcmp(macros[i].name,ntoks)){
+							err("macro redefinition");
+						}
+					}
+				}else err("macro name missing");
+				name=gs(ntoks);
 
-			while((*in!='\n')&&(*in!='\r')){
-				sadd(repl,inp());
-			}
-			sadd(repl,'\0');
+				/* handle parameter list */
+				scan();
+				if(ntok=='('){
+					scan();
+					while(ntok!=')'){
+						if(ntok!=TOK_NAME){
+							err("invalid token in macro parameter list");
+						}
 
-			macro m;
-			m.name=name;
-			m.args=args;
-			m.repl=repl;
-			sadd(macros,m);
+						char *arg=malloc(strlen(ntoks)+1);
+						strcpy(arg,ntoks);
+						sadd(args,arg);
+
+						scan();
+
+						if(ntok!=',')break;
+						scan();
+					}
+					if(ntok!=')')err("expected ')'");
+				}
+				in=ntoke;
+				cget();
+				while(*in && (*in!='\n')&&(*in!='\r')){
+					sadd(repl,cget());
+				}
+				sadd(repl,'\0');
+
+				macro m;
+				m.name=name;
+				m.args=args;
+				m.repl=repl;
+				sadd(macros,m);
+			}else if(!strcmp(ntoks,"if")){
+				type=d_if;
+				scan();
+				if(ntok!=TOK_INT && toki!=0){
+					err("not supported");
+				}
+				/* todo: implement this properly */
+				while(*in){
+					cget();
+				}
+				tok=ntok=TOK_EOF;
+				goto esc;
+			}else if(!strcmp(ntoks,"endif")){
+				type=d_endif;
+				scan();
+			}
+			/* finish rest of the line */
+			in=ntoke;
+			while(*in && (*in!='\n')&&(*in!='\r')){
+				cget();
+			}
+			/* macros are treated like comments */
 			goto retry;
 		}break;
 	}
 	esc:;
 }
 int eat(int tk){return(tok==tk)?(lex(),1):0;}
-
-/* register management */
-int reg2regs(int r){return 1<<r;}
-int usingregs(int r){return~regs&r;}
-int usingreg(asm_reg r){return~regs&reg2regs(r);}
-void freereg(asm_reg r){regs|=reg2regs(r);}
-void usereg(asm_reg r){
-	if(usingreg(r))err("already using register");
-	regs&=~reg2regs(r);
-}
-int nil(spec*e){return(e->type==Nil);}
-int var(spec*e){return(e->type==Var);}
-int ptr(spec*e){return(e->type==Ptr);}
-int reg(spec*e){return(e->type==Reg);}
-void dismiss(spec*e){
-	if(reg(e))freereg(inf(e));
-	// set(e,0,0);
-}
 /* patch a jump string */
 void pjs(int *j){int i;
 	for(i=0;i<slen(j);i++){
 		((i32*)(xmem+j[i]))[-1]=(xcur-xmem)-j[i];
 	}
 }
-/* data to register */
-void d2reg(spec*e,asm_reg r){
-	if(reg(e))return;
+void place(spec*e,asm_reg r);
+void e2cc(spec*e){
+	if(ty(e)!=Cond){
+		place(e,asm_rax);
+		if(!reg(e)||inf(e)!=asm_rax)err("impossible");
+		asm_cmpi(asm_rax,0);
+		dismiss(e);
+		set(e,Cond,asm_cc_z);
+	}
+}
+void ejz(spec*e){
+	e2cc(e);
+	asm_jcc(inf(e),0);
+	sadd(e->fj,xget());
+}
+typedef u8 *hole;
+typedef u8 *label;
+hole jump(){
+	asm_jmp(0);
+	return xcur;
+}
+void patch(hole j){
+	((i32*)j)[-1]=xcur-j;
+}
+void go2(label l){
+	asm_jmp(0);
+	((i32*)xcur)[-1]=l-xcur;
+}
+void prune(spec*e){
+	/* use setcc when dst branch is cmp */
+	// ((1+!e->tj-!e->fj)>>1);
+	if(ty(e)==Cond&&e->fj&&!e->tj){
+		place(e,asm_rax);
+		dismiss(e);
+		hole j=jump();
+		pjs(e->fj);
+		usereg(asm_rax);
+		asm_loadqi(asm_rax,0);
+		patch(j);
+		set(e,Reg,asm_rax);
+	}else if(ty(e)==Cond&&!e->fj&&e->tj){
+		place(e,asm_rax);
+		dismiss(e);
+		hole j=jump();
+		pjs(e->tj);
+		usereg(asm_rax);
+		asm_loadqi(asm_rax,1);
+		patch(j);
+		set(e,Reg,asm_rax);
+	}else if(e->tj||e->fj){else_:
+		ejz(e);
+		pjs(e->tj);
+		usereg(asm_rax);
+		asm_loadqi(asm_rax,1);
+		hole j=jump();
+		pjs(e->fj);
+		asm_loadqi(asm_rax,0);
+		patch(j);
+		set(e,Reg,asm_rax);
+	}
+	if(e->tj)sfree(e->tj);
+	if(e->fj)sfree(e->fj);
+}
+void place(spec*e,asm_reg r){
 	if(r<0||r>=asm_num_gpr_regs)err("invalid argument");
-	if(usingreg(r))err("register already in use");
+	if(reg(e)||ptr(e))return;
 	usereg(r);
-	if(ty(e)==Ptr){
+	if(ty(e)==Cond){
+		asm_scc(r,asm_icc(inf(e)));
+	}else if(ty(e)==Ptr){
 		asm_loadq(r,inf(e),0);
 	}else if(ty(e)==Str){
 		asm_loadqi(r,(i64)gget(inf(e)));
 	}else if(ty(e)==Var){
-		asm_loadq(r,asm_rbp,-VARSIZE*(inf(e)+1));
+		asm_loadq(r,asm_rbp,inf(e));
 	}else if(ty(e)==Int||ty(e)==Closure||ty(e)==Proc){
 		asm_loadqi(r,inf(e));
 	}
 	set(e,Reg,r);
 }
-/* jump condition is unspecified */
-void e2jcc(spec *e){
-	if(ty(e)!=Jcc){
-		d2reg(e,asm_rax);
-		if(!reg(e)||inf(e)!=asm_rax)err("impossible");
-		asm_cmpi(asm_rax,0);
-		dismiss(e);
-		set(e,Jcc,0);
-	}
+void merge(spec*x,spec y){
+	int i;
+	for(i=0;i<slen(y.fj);i++)sadd(x->fj,y.fj[i]);
+	for(i=0;i<slen(y.tj);i++)sadd(x->tj,y.tj[i]);
+	set(x,y.type,y.info);
 }
-/* convert to false jump */
-void e2fj(spec *e,cspec *c){
-	e2jcc(e);
-	if(inf(e)==0){
-		asm_jz(0);
-	}else{
-		asm_jcc(inf(e),0);
-	}
-	sadd(c->fj,offs());
-}
-void c2d(spec*e,cspec c){
-	if((ty(e)==Jcc)||(c.tj)||(c.fj)){
-		e2fj(e,&c);
-		usereg(asm_rax);
-		pjs(c.tj);
-		asm_loadqi(asm_rax,1);
-		asm_jmp(0);
-		u8 *j=xcur;
-		pjs(c.fj);
-		asm_loadqi(asm_rax,0);
-		((i32*)j)[-1]=xcur-j;
-		sfree(c.tj);
-		sfree(c.fj);
-		set(e,Reg,asm_rax);
-	}
-}
-void unary(spec*e,cspec*js);
-void expr2(spec*x,cspec*js,int flags,int u);
+void unary(spec*e);
+void asisexpr(spec*x,int flags,int u);
 void expr(spec*e,int flags,int u);
 /* "Do I Look Like A Carry A Pencil", Blitz, Jason Statham */
-void unary(spec*e,cspec*js){
+void unary(spec*e){
 	set(e,Nil,0);
 	if(!tok)goto esc;
 	switch(tok){
 		case'&':{
 			lex();
-			unary(e,js);
+			unary(e);
 			if(!var(e))err("invalid l-value");
 			usereg(asm_rax);
-#if 1
-			asm_leaq(asm_rax,asm_rbp,-VARSIZE*(inf(e)+1));
-#else
-			asm_moveq(asm_rax,asm_rbp);
-			asm_subqi(asm_rax,VARSIZE*(inf(e)+1));
-#endif
+			asm_leaq(asm_rax,asm_rbp,inf(e));
 			set(e,Reg,asm_rax);
 		}break;
 		case'(':{
 			lex();
-			expr2(e,js,0,0);
+			expr(e,0,1);
 			if(!eat(')'))err("expected ')'");
 		}break;
 		case'-':{
 			lex();
-			unary(e,js);
+			unary(e);
 			if(ty(e)!=Int){
-				d2reg(e,asm_rcx);
+				place(e,asm_rcx);
 				asm_loadqi(asm_rax,0);
 				asm_subq(asm_rax,asm_rcx);
 				dismiss(e);
 				set(e,Reg,asm_rax);
 				usereg(asm_rax);
 			}else{
-				printf("converted: %lli to %lli\n",inf(e),-inf(e));
 				set(e,Int,-inf(e));
 			}
 		}break;
@@ -561,13 +705,12 @@ void unary(spec*e,cspec*js){
 			dismiss(e);
 		}break;
 		case TOK_NAME:{
-			entity en;
-			set(e,Var,((char*)toki)[0]-'a');
-			en=getentity(((char*)toki));
+			set(e,Var,getvoff(toks[0]));
+			entity en=getentity(toks);
 			if(en.type!=entity_nil){
 				set(e,Closure,en.info);
-			} else if(strlen(((char*)toki))>1){
-				set(e,Proc,(i64)procaddr(((char*)toki)));
+			} else if(strlen((toks))>1){
+				set(e,Proc,(i64)getproc(toks));
 			}
 			lex();
 		}break;
@@ -587,21 +730,21 @@ void unary(spec*e,cspec*js){
 		// if(ty(e)!=Closure&&ty(e)!=Proc){
 		// 	err("expected function");
 		// }
-		if(usingregs(asm_regs_arg)){
-			err("invalid memory state, not all arg registers are available");
+		if(usingregs(asm_regs_args)){
+			err("invalid memory state, not all argument registers are available");
 		}
-		// asm_subqi(asm_rsp,40);
 		int stat,i=0;
 		stat=regs;
 		//-32 first 4 arguments shadow space
 		int stack=(26*VARSIZE+16&~15)-32;
-		while((tok)&&(tok!=')')){spec y;
-			expr(&y,0,0);
+		while((tok)&&(tok!=')')){
+			spec y={};
+			expr(&y,0,1);
 			if(nil(&y))goto esc;
-			if(regs&asm_regs_arg){
-				d2reg(&y,asm_arg_regs_list[i++]);
+			if(regs&asm_regs_args){
+				place(&y,asm_arg_regs_list[i++]);
 			}else{
-				d2reg(&y,asm_rax);
+				place(&y,asm_rax);
 				dismiss(&y);
 				asm_storeq(asm_rbp,-stack,asm_rax);
 				stack-=VARSIZE;
@@ -615,7 +758,7 @@ void unary(spec*e,cspec*js){
 			((i32*)xcur)[-1]=(u8*)inf(e)-xcur;
 		}else{
 #endif
-		d2reg(e,asm_rax);
+		place(e,asm_rax);
 		// asm_loadqi(asm_rax,inf(e));
 		asm_call(asm_rax);
 		dismiss(e);
@@ -629,97 +772,96 @@ void unary(spec*e,cspec*js){
 		if(!eat(')'))err("expected ')'");
 		goto retry;
 	}else if(eat('[')){
-		spec y;
+		spec y={};
 		expr(&y,0,0);
 		if(!eat(']'))err("expected ']'");
-#if 0
-#else
-		d2reg(&y,asm_rax);
-		d2reg(e,asm_rcx);
+		place(&y,asm_rax);
+		place(e,asm_rcx);
 		asm_addq(asm_rcx,asm_rax);
-#endif
 		set(e,Ptr,asm_rcx);
 		dismiss(&y);
 		goto retry;
 	}
 	esc:;
 }
-int prec(int t){
-	if(t==TOK_LAND)return 1;
+/* token precedence map */
+int tpmap(int t){
+	if(t=='*'||t=='/'||t=='%')return 7;
+	if(t=='+'||t=='-')return 6;
+	if(t==TOK_SHL||t==TOK_SHR)return 5;
+	if(t=='<'||t=='>')return 4;
+	if(t==TOK_LAND)return 3;
 	if(t==TOK_LOR)return 2;
-	if(t=='<')return 3;
-	if(t=='+'||t=='-')return 4;
-	if(t=='*'||t=='/'||t=='%')return 5;
+	if(t==',')return 1;
 	return-1;
 }
 void expr(spec*e,int flags,int u){
-	cspec c={0};
-	expr2(e,&c,flags,u);
-	c2d(e,c);
+	asisexpr(e,flags,u);
+	prune(e);
 }
-void expr2(spec*x,cspec*c,int flags,int u){
-	int o;
+void asisexpr(spec*x,int flags,int u){
 
-	unary(x,c);
+	unary(x);
 	if(nil(x))goto esc;
 
 	/* > left associative, >= right associative */
-	while(prec(o=tok)>u){
+	int o;
+	while(tpmap(o=tok)>u){
 		lex();
-		/* todo: avoid compares when expression
-		sets the zf flag, '1-1' '1==1' */
-		if(o==TOK_LOR){spec y;
-			e2jcc(x)   ;
-			asm_jnz(0) ; sadd(c->tj,offs());
-			pjs(c->fj) ; sfree(c->fj);
-			cspec cc={0};
-			expr2(x,&cc,flags,prec(o));
-			if(nil(x))goto esc;
-			for(int i=0;i<slen(cc.fj);++i){
-				sadd(c->fj,cc.fj[i]);
+		if(o==','){
+			place(x,asm_rax);
+			dismiss(x);
+			expr(x,flags,tpmap(o));
+		}else if((o==TOK_LOR)||(o==TOK_LAND)){
+			e2cc(x);
+			if(o==TOK_LOR){
+				asm_jnz(0);
+				sadd(x->tj,xget());
+				pjs(x->fj);
+				sfree(x->fj);
+			}else{
+				asm_jz(0);
+				sadd(x->fj,xget());
+				pjs(x->tj);
+				sfree(x->tj);
 			}
-			for(int i=0;i<slen(cc.tj);++i){
-				sadd(c->tj,cc.tj[i]);
-			}
-		}else if(o==TOK_LAND){
-			e2jcc(x)   ;
-			asm_jz(0)  ; sadd(c->fj,offs());
-			pjs(c->tj) ; sfree(c->tj);
-			cspec cc={0};
-			expr2(x,&cc,flags,prec(o));
-			if(nil(x))goto esc;
-			for(int i=0;i<slen(cc.fj);++i){
-				sadd(c->fj,cc.fj[i]);
-			}
-			for(int i=0;i<slen(cc.tj);++i){
-				sadd(c->tj,cc.tj[i]);
-			}
-		} else {spec y;
-			expr(&y,flags,prec(o));
+			spec y={};
+			asisexpr(&y,flags,tpmap(o));
+			if(nil(&y))goto esc;
+			merge(x,y);
+		}else{
+			spec y={};
+			expr(&y,flags,tpmap(o));
 			if(nil(&y))goto esc;
 
 			if(reg(x)&&reg(&y)){
 				err("impossible");
 			}
 			if(!reg(x)){
-				if(!usingreg(asm_rax))d2reg(x,asm_rax);
-				else if(!usingreg(asm_rcx))d2reg(x,asm_rcx);
+				if(!usingreg(asm_rax))place(x,asm_rax);
+				else if(!usingreg(asm_rcx))place(x,asm_rcx);
 				else err("expression too complex");
 			}
 			if(!reg(&y)){
-				if(!usingreg(asm_rax))d2reg(&y,asm_rax);
-				else if(!usingreg(asm_rcx))d2reg(&y,asm_rcx);
+				if(!usingreg(asm_rax))place(&y,asm_rax);
+				else if(!usingreg(asm_rcx))place(&y,asm_rcx);
 				else err("expression too complex");
 			}
 			if(!reg(x))err("impossible");
 			if(!reg(&y))err("impossible");
-			if(o=='<'){
+			// if(inf(x)!=asm_rax)err("impossible");
+			// if(inf(&y)!=asm_rcx)err("impossible");
+			if(o=='<'||o=='>'){
 				asm_cmpq(inf(x),inf(&y));
 				dismiss(x);
 				dismiss(&y);
-				set(x,Jcc,asm_Jcc_jge);
+				set(x,Cond,o=='<'?asm_cc_ge:asm_cc_le);
 			}else{
-				if(o=='*'){
+				if(o==TOK_SHR){
+					asm_shrq(asm_rax);
+				}else if(o==TOK_SHL){
+					asm_shlq(asm_rax);
+				}else if(o=='*'){
 					asm_mulq(asm_rax,asm_rcx);
 				}else if(o=='-'){
 					asm_subq(asm_rax,asm_rcx);
@@ -731,22 +873,25 @@ void expr2(spec*x,cspec*c,int flags,int u){
 			}
 		}
 	}
-
-	/* right associative, and also least precedence
-	of all expressions so far..., hence here */
-	if(tok=='='){spec y;
+	/* right associative, hence here */
+	if(tok=='='){
 		lex();
 		if(!var(x)&&!ptr(x))err("invalid l-value");
-
-		expr(&y,0,0);
-		if(reg(&y)&&(inf(&y)!=asm_rax))err("expression too complex");
-
-		d2reg(&y,asm_rax);
-		if(var(x)){
-			asm_storeq(asm_rbp,-VARSIZE*(inf(x)+1),inf(&y));
+		spec y={};
+		asisexpr(&y,0,0);
+		if(var(x)&&noj(&y)&&ty(&y)==Int){
+			asm_storeqi(asm_rbp,inf(x),inf(&y));
 		}else{
-			asm_storeq(inf(x),0,inf(&y));
+			prune(&y);
+			place(&y,asm_rax);
+			if(!reg(&y)&&!ptr(&y))err("impossible");
+			if(var(x)){
+				asm_storeq(asm_rbp,inf(x),inf(&y));
+			}else{
+				asm_storeq(inf(x),0,inf(&y));
+			}
 		}
+		if(!noj(&y))err("impossible");
 		*x=y;
 	}
 	esc:;
@@ -764,11 +909,12 @@ void stat(){int save;
 			while(tok&&tok!='}')stat();
 			if(!eat('}'))err("expected '}'");
 		}break;
-		case TOK_return:{spec e;
+		case TOK_return:{
+			spec e={};
 			lex();
 			if(tok!=';'){
 				expr(&e,0,0);
-				d2reg(&e,asm_rax);
+				place(&e,asm_rax);
 				dismiss(&e);
 			}
 			asm_leave();
@@ -776,8 +922,7 @@ void stat(){int save;
 			asm_ret();
 			endstat();
 		}break;
-		case TOK_long:case TOK_int:
-		case TOK_void:{
+		case TOK_long:case TOK_int:case TOK_void:{
 			int typesize=0;
 			if(eat(TOK_void)){
 				typesize=0;
@@ -786,135 +931,125 @@ void stat(){int save;
 			}else if(eat(TOK_int)){
 				typesize=sizeof(int);
 			}
-
 			if(tok!=TOK_NAME)err("expected 'id'");
-			char *name=malloc(strlen((char*)toki)+1);
-			memcpy(name,(char*)toki,strlen((char*)toki)+1);
+			lex();
 
 			/* emit jump to skip function's code */
-			asm_jmp(0);
+			hole fj=jump();
 
-			newentity(name,entity_fn,(i64)xcur);
+			char *name=gs(toks);
+			decl(name,entity_fn,(i64)xcur);
 
-			u8* fj=xcur;
 			asm_push(asm_rbp);
 			asm_moveq(asm_rbp,asm_rsp);
 			asm_subqi(asm_rsp,(26*VARSIZE) + 16 & ~15);
 
-			lex();
-			if(!eat('('))err("expected '('");
-			int arity=0;
 			int scope=nentities;
+			int arity=0;
+
+			if(!eat('('))err("expected '('");
 			if(tok!=')')do{
 				if(tok!=TOK_NAME)err("expected 'id'");
-				name=(char*)toki;
-				if(strlen(name)>1)err("variable name cannot be greater than 1");
-				/* register where the param comes from */
-				int r=asm_arg_regs_list[arity++];
-				asm_storeq(asm_rbp,-VARSIZE*((name[0]-'a')+1),r);
+				name=toks;
+				if(strlen(name)>1)err("one letter variable names only");
+
+				if(arity<asm_num_gpr_arg_regs){
+					int r=asm_arg_regs_list[arity];
+					asm_storeq(asm_rbp,getvoff(name[0]),r);
+				}
+				arity++;
+
 				#if 0
-				name=malloc(strlen((char*)toki)+1);
-				memcpy(name,(char*)toki,strlen((char*)toki)+1);
-				newentity(name,entity_param,arity++);
+				name=malloc(strlen(toks)+1);
+				memcpy(name,toks,strlen(toks)+1);
+				decl(name,entity_param,arity++);
 				#endif
 				lex();
 			}while(eat(','));
 			if(!eat(')'))err("expected ')'");
-
 			stat();
-
 			asm_leave();
-			// asm_pop(asm_rbp);
 			asm_ret();
-
-			((i32*)fj)[-1]=xcur-fj;
+			patch(fj);
+			/* restore previous state */
 			nentities=scope;
 		}break;
-		/* since we can't store the iter expression
-		for later, to emit at the end of the loop
-		body, we have to do some rewiring... */
-		case TOK_for:{spec e;
-			/* l0: label to evaluate the condition,
-			l1: label to jump over the iter expression
-			l2: label to exit the loop,
-			j0: jump over the iter expression to l1,
-			l2: jump after the iter expression to l0 */
-			u8*j0,*j1,*l0,*l1,*l2;
+		/* since we can't (but could) append the iter
+		expr at the end of the loop's body, rewire
+		it from:
+		cond -> (body or exit)
+		body -> iter -> cond
+		to:
+		cond -> (body or exit)
+		body -> iter
+		iter -> cond */
+		case TOK_for:{
+			spec e={};
 			lex();
-
 			if(!eat('('))err("expected '('");
 			expr(&e,0,0);
 			dismiss(&e);
 			if(!eat(';'))err("expected ';'");
-
-			l0=xcur;
-			expr(&e,0,0);
-			d2reg(&e,asm_rax);
-
-			asm_cmpi(inf(&e),0);
-			asm_jz(0);
-			j0=xcur;
-
+			label c=xcur;
+			asisexpr(&e,0,0);
+			ejz(&e);
 			dismiss(&e);
-
+			hole c2e=xcur;
 			if(!eat(';'))err("expected ';'");
-
-			asm_jmp(0);
-			j1=l1=xcur;
+			hole i=jump();
 			expr(&e,0,0);
 			dismiss(&e);
-
-			asm_jmp(0);
-			((i32*)xcur)[-1]=l0-xcur;
-
-			((i32*)j1)[-1]=xcur-j1;
-
+			go2(c);
+			patch(i);
 			if(!eat(')'))err("expected ')'");
 			stat();
-			asm_jmp(0);
-			((i32*)xcur)[-1]=l1-xcur;
-
-			((i32*)j0)[-1]=xcur-j0;
+			go2(i);
+			patch(c2e);
 		}break;
-		case TOK_if:{spec e;
-			cspec c={0};
+		case TOK_if:{
+			spec e={};
 			lex();
 			if(!eat('('))err("expected '('");
-			expr2(&e,&c,0,0);
+			asisexpr(&e,0,0);
 			if(nil(&e))goto esc;
 			if(!eat(')'))err("expected ')'");
-			e2fj(&e,&c);
-			pjs(c.tj);
+			ejz(&e);
+			pjs(e.tj);
 			stat();
-			pjs(c.fj);
+			pjs(e.fj);
 		}break;
-		default:{spec e;
-			save=regs;
+		default:{
+			spec e={};
 			expr(&e,0,0);
-			regs=save;
+			dismiss(&e);
+			if(regs!=asm_regs_gpr)err("impossible!");
 			endstat();
 		}break;
+		case TOK_EOF:;
 	}
 	esc:;
-
 }
 void comp(){
 	asm_push(asm_rbp);
 	asm_moveq(asm_rbp,asm_rsp);
 	asm_subqi(asm_rsp,(26*VARSIZE) + 16 & ~15);
+
+	lex();
 	lex();
 	while(tok)stat();
+
 	asm_loadqi(asm_rax,0);
 	asm_leave();
 	asm_ret();
 }
-void foo(){
-	long long int a=0,b=1;
-	(&a)[-1]=7;
-	// printf("b: %lli\n",b);
+int fib(int a){
+	if(a<2){
+		return a;
+	}
+	return fib(a-2)+fib(a-1);
 }
 int main(int argc,char**args){
-	test_switch();
+	// fib(40);
 #if defined(_WIN32)
 	msvcrt=LoadLibraryA("msvcrt.dll");
 	if(!msvcrt)err("error 'msvcrt.dll': could not load");
@@ -924,10 +1059,8 @@ int main(int argc,char**args){
 	if(!user32)err("error 'User32.dll': could not load");
 #endif
 	xmem=xcur=execalloc(4096*4);
-	// asm_storei(asm_rbp,256,777,0);
-	// asm_storei(asm_r15,256,777,0);
 
-	inb=in=ftext("tests.c66");
+	inb=in=gettextf("tests.c66");
 	if(in==0)err("tests.c66 not found...");
 	comp();
 

@@ -4,6 +4,23 @@ p=&a;
 v=p[-16];
 printf("33: %i\n",v);
 
+// #if 0
+// #if 0
+
+for(i=0;i<10;i=i+1){
+	printf("welcome\n");
+}
+
+a=0||2<3;
+a=1&&3<2;
+a=0||1&&3<2||1;
+
+printf("a: %i\n",a);
+a=2<3;
+a=1&&2<3;
+a=1<<7;
+a=a>>7;
+printf("a: %lli\n",a);
 
 void mul(a,b){
 	c=0;
@@ -49,9 +66,10 @@ printf("mul(2,256): %lli\n",a);
 p=malloc(256);
 _strtime(p);
 
-f=fopen("some_test_file.txt","wb");
-fprintf(f,"-- %s, test write to file.\n",p);
-fclose(f);
+// this works
+// f=fopen("some_test_file.txt","wb");
+// fprintf(f,"-- %s, test write to file.\n",p);
+// fclose(f);
 
 free(p);
 
@@ -76,10 +94,9 @@ void foo(){
 	return;
 }
 foo();
-if(2<1){
-	printf("this is an error!\n");
-	return;
-}
+if(2<1)printf("0: 1\n");
+if(2>1)printf("1: 1\n");
+
 a=1<2;
 printf("1: %i\n",a);
 a=2<1;
@@ -115,7 +132,7 @@ printf("4: %i (line macro)\n",b);
 if(1&&3||7)printf("1: 1\n");
 
 a=(0||0)&&1;
-printf("0: %i (&& || interplay test)\n",a);
+printf("[%i] 0: %i (&& || interplay test)\n",__LINE__,a);
 a=(1||0)&&1;
 printf("1: %i (&& || interplay test)\n",a);
 a=1||0||0||0||0;

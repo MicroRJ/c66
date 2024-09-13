@@ -23,32 +23,40 @@ typedef char  			  asm_i8;
 
 typedef int asm_reg;
 
-#if 0
-#define ASM_DBG printf
+#if 1
+#define ASM_FPF printf
 #else
-#define ASM_DBG(...)
+#define ASM_FPF(...)
 #endif
 
-/* registers are in order, to be used with
-the instructions directly... */
+/* registers are in order, to be used with instructions
+directly... number of register must be power of 2 */
 #define GPRDEF(_) \
-_(rax)_(rcx)_(rdx)_(rbx)\
-_(rsp)_(rbp)_(rsi)_(rdi)\
-_(r8) _(r9) _(r10)_(r11)\
-_(r12)_(r13)_(r14)_(r15)
+_(rax, eax)_(rcx, ecx)_(rdx, edx)_(rbx, ebx)\
+_(rsp, esp)_(rbp, ebp)_(rsi, esi)_(rdi, edi)\
+_( r8, r8d)_( r9, r9d)_(r10,r10d)_(r11,r11d)\
+_(r12,r12d)_(r13,r13d)_(r14,r14d)_(r15,r15d)
 
-#define GPR(NAME) asm_##NAME,
+
 enum{
+#define GPR(QNAME,_) asm_##QNAME,
 	GPRDEF(GPR)
-};
 #undef GPR
+#define GPR(_,DNAME) asm_##DNAME,
+	GPRDEF(GPR)
+#undef GPR
+};
 
 
-#define GPR(NAME) #NAME,
 const char* asm_reg2s[]={
+#define GPR(QNAME,_) #QNAME,
 	GPRDEF(GPR)
-};
 #undef GPR
+#define GPR(_,DNAME) #DNAME,
+	GPRDEF(GPR)
+#undef GPR
+};
+
 
 enum{
 	asm_num_gpr_regs=16,
@@ -60,7 +68,7 @@ static char asm_arg_regs_list[]={
 enum{
 	asm_regs_nil=0,
 	asm_regs_gpr=0xffff,
-	asm_regs_arg=(1<<asm_rcx)|(1<<asm_rdx)|(1<<asm_r8)|(1<<asm_r9),
+	asm_regs_args=(1<<asm_rcx)|(1<<asm_rdx)|(1<<asm_r8)|(1<<asm_r9),
 };
 
 
@@ -74,35 +82,35 @@ void asm_err(char *msg){
 	fputs(msg,stderr);
 }
 void asm_push(asm_reg reg){int flags;
-	ASM_DBG("push %s\n",asm_reg2s[reg]);
+	ASM_FPF("push %s\n",asm_reg2s[reg]);
 	flags=reg>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x50+(reg&7));
 }
 void asm_pop(asm_reg reg){
-	ASM_DBG("pop %s\n",asm_reg2s[reg]);
+	ASM_FPF("pop %s\n",asm_reg2s[reg]);
 	asm_o(0x58+reg);
 }
 void asm_ret(){
-	ASM_DBG("ret\n");
+	ASM_FPF("ret\n");
 	asm_o(0xC3);
 }
 void asm_leave(){
-	ASM_DBG("leave\n");
+	ASM_FPF("leave\n");
 	asm_o(0xC9);
 }
 void asm_jcall(asm_i32 dsp){
-	ASM_DBG("jcall %i\n",dsp);
+	ASM_FPF("jcall %i\n",dsp);
 	asm_o(0xE8);
 	asm_i(dsp,4);
 }
 void asm_call(asm_reg reg){
-	ASM_DBG("call %s\n",asm_reg2s[reg]);
+	ASM_FPF("call %s\n",asm_reg2s[reg]);
 	asm_o(0xFF);
 	asm_o(0xC0|0x02<<3|reg&7);
 }
 void asm_test(asm_reg dst,asm_reg src,int flags){
-	ASM_DBG("test %s, %s\n",asm_reg2s[dst],asm_reg2s[src]);
+	ASM_FPF("test %s, %s\n",asm_reg2s[dst],asm_reg2s[src]);
 	flags|=src>>1&4|dst>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x85);
@@ -112,7 +120,7 @@ void asm_testq(asm_reg dst,asm_reg src){
 	asm_test(dst,src,REX_W);
 }
 void asm_cmp(asm_reg dst,asm_i32 src,int flags){
-	ASM_DBG("cmp%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
+	ASM_FPF("cmp%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
 	flags|=src>>1&4|dst>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x39);
@@ -124,18 +132,20 @@ void asm_cmpq(asm_reg reg,asm_i32 src){
 void asm_cmpd(asm_reg reg,asm_i32 src){
 	asm_cmp(reg,src,0);
 }
-void asm_move(asm_reg dst,asm_reg src,int flags){
-	ASM_DBG("mov%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
-	flags|=src>>1&4|dst>>3&1;
+// void asm_movsxd(asm_reg dst,asm_reg src){
+// }
+void asm_mov(asm_reg dst,asm_reg src,int flags){
+	flags|=(~dst|~src)&16>>1|src>>1&4|dst>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x89);
 	asm_o(0xC0|(src&7)<<3|dst&7);
+	ASM_FPF("mov %s, %s\n",asm_reg2s[dst],asm_reg2s[src]);
 }
 void asm_moveq(asm_reg dst,asm_reg src){
-	asm_move(dst,src,REX_W);
+	asm_mov(dst,src,REX_W);
 }
 void asm_load(asm_reg dst,asm_reg src,asm_i32 off,int flags){
-	ASM_DBG("mov%c %s, [%s%+i]\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src],off);
+	ASM_FPF("mov%c %s, [%s%+i]\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src],off);
 	flags|=dst>>1&4|src>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x8B);
@@ -149,7 +159,7 @@ void asm_loadq(asm_reg dst,asm_reg src,asm_reg off){
 	asm_load(dst,src,off,REX_W);
 }
 void asm_store(asm_reg dst,asm_i32 off,asm_reg src,int flags){
-	ASM_DBG("mov%c [%s%+i], %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],off,asm_reg2s[src]);
+	ASM_FPF("mov%c [%s%+i], %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],off,asm_reg2s[src]);
 	flags|=src>>1&4|dst>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x89);
@@ -164,12 +174,12 @@ void asm_storeq(asm_reg dst,asm_i32 off,asm_reg src){
 }
 void asm_storei(asm_reg dst,asm_i32 off,asm_i64 src,int flags){
 	flags|=((asm_i32)src!=src)<<3|dst>>3&1;
-	ASM_DBG("mov%c [%s%+i], #%lli\n",flags&REX_W?'q':'d',asm_reg2s[dst],off,src);
 	if(flags)asm_o(REX|flags);
 	asm_o(0xC7);
 	asm_o(0x80>>((asm_i8)off==off)|dst&7);
 	asm_i(off,4>>((asm_i8)off==off)*2);
 	asm_i(src,8>>((asm_i32)src==src));
+	ASM_FPF("mov%c [%s%+i], #%lli\n",flags&REX_W?'q':'d',asm_reg2s[dst],off,src);
 }
 void asm_storedi(asm_reg dst,asm_i32 off,asm_i64 src){
 	asm_storei(dst,off,src,0);
@@ -179,7 +189,7 @@ void asm_storeqi(asm_reg dst,asm_i32 off,asm_i64 src){
 }
 void asm_loadi(asm_reg dst,asm_i64 src,int flags){
 	flags|=((asm_i32)src!=src)<<3|(dst>>3&1);
-	ASM_DBG("mov%c %s, %llx\n",flags&REX_W?'q':'d',asm_reg2s[dst],src);
+	ASM_FPF("mov%c %s, %llx\n",flags&REX_W?'q':'d',asm_reg2s[dst],src);
 	if(flags)asm_o(REX|flags);
 	if((asm_i32)src==src){
 		asm_o(0xC7);
@@ -193,7 +203,7 @@ void asm_loadqi(asm_reg dst,asm_i64 src){
 	asm_loadi(dst,src,REX_W);
 }
 void asm_mul(asm_reg dst,asm_reg src,int flags){
-	ASM_DBG("mul%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
+	ASM_FPF("mul%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
 	flags|=dst>>1&4|src>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x0F);
@@ -220,7 +230,7 @@ void asm_subqi(asm_reg dst,asm_i64 src){
 	return asm_subi(dst,src,REX_W);
 }
 void asm_sub(asm_reg dst,asm_reg src,int flags){
-	ASM_DBG("sub%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
+	ASM_FPF("sub%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
 	flags|=dst>>1&4|src>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x2B);
@@ -246,7 +256,7 @@ void asm_adddi(asm_reg dst,asm_i64 src){
 	asm_addi(dst,src,0);
 }
 void asm_add(asm_reg dst,asm_reg src,int flags){
-	ASM_DBG("add%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
+	ASM_FPF("add%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
 	flags|=dst>>1&4|src>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x03);
@@ -258,13 +268,53 @@ void asm_addd(asm_reg dst,asm_reg src){
 void asm_addq(asm_reg dst,asm_reg src){
 	asm_add(dst,src,REX_W);
 }
+void asm_shr(asm_reg dst,int flags){
+	ASM_FPF("shr%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[asm_rcx]);
+	flags|=dst>>1&4;
+	if(flags)asm_o(REX|flags);
+	asm_o(0xD3);
+	asm_o(0xC0|5<<3|dst&7);
+}
+void asm_shrd(asm_reg dst){
+	asm_shr(dst,0);
+}
+void asm_shrq(asm_reg dst){
+	asm_shr(dst,REX_W);
+}
+void asm_shl(asm_reg dst,int flags){
+	ASM_FPF("shl%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[asm_rcx]);
+	flags|=dst>>1&4;
+	if(flags)asm_o(REX|flags);
+	asm_o(0xD3);
+	asm_o(0xC0|4<<3|dst&7);
+}
+void asm_shld(asm_reg dst){
+	asm_shl(dst,0);
+}
+void asm_shlq(asm_reg dst){
+	asm_shl(dst,REX_W);
+}
+void asm_shli(asm_reg dst,asm_i32 src,int flags){
+	ASM_FPF("shl%c %s, %i\n",flags&REX_W?'q':'d',asm_reg2s[dst],src);
+	flags|=dst>>1&4;
+	if(flags)asm_o(REX|flags);
+	asm_o(0xC1);
+	asm_o(0xC0|4<<3|dst&7);
+	asm_o(src);
+}
+void asm_shldi(asm_reg dst,asm_i32 src){
+	asm_shli(dst,src,0);
+}
+void asm_shlqi(asm_reg dst,asm_i32 src){
+	asm_shli(dst,src,REX_W);
+}
 void asm_cmpi(asm_reg reg,asm_i32 src){
 	asm_o(0x81);
 	asm_o(0xC0|0x07<<3|reg&7);
 	asm_i(src,4);
 }
 void asm_lea(asm_reg dst,asm_reg src,asm_i32 off,int flags){
-	ASM_DBG("lea%c %s, [%s%+i]\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src],off);
+	ASM_FPF("lea%c %s, [%s%+i]\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src],off);
 	flags|=dst>>1&4|src>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x8D);
@@ -277,30 +327,56 @@ void asm_lead(asm_reg dst,asm_reg src,asm_i32 off){
 void asm_leaq(asm_reg dst,asm_reg src,asm_i32 off){
 	asm_lea(dst,src,off,REX_W);
 }
-void asm_jmp(asm_i32 rel){
+void asm_jmp(asm_i32 off){
 	asm_o(0xE9);
-	asm_i(rel,4);
+	asm_i(off,4);
+	ASM_FPF("jmp %i\n",off);
 }
 typedef enum{
-	asm_Jcc_jz  =0x84,
-	asm_Jcc_jnz =0x85,
-	asm_Jcc_jl  =0x8C,
-	asm_Jcc_jge =0x8D,
-	asm_Jcc_jg  =0x8F,
-}asm_Jcc;
-void asm_jcc(asm_Jcc jcc,asm_i32 rel){
+	asm_cc_z =0x04,
+	asm_cc_nz=0x05,
+	asm_cc_l =0x0C,
+	asm_cc_ge=0x0D,
+	asm_cc_le=0x0E,
+	asm_cc_g =0x0F,
+} asm_cc;
+static char *asm_cc2s[]={
+	"","","","","z","nz","","","","","","","l","ge","le","g"
+};
+
+// !(cc)
+asm_cc asm_icc(asm_cc c){
+#if 0
+	return cc ^ 1;
+#else
+	if(c==asm_cc_z) return asm_cc_nz;
+	if(c==asm_cc_l) return asm_cc_ge;
+	if(c==asm_cc_g) return asm_cc_le;
+	if(c==asm_cc_ge)return asm_cc_l;
+	if(c==asm_cc_le)return asm_cc_g;
+	return c;
+#endif
+}
+void asm_scc(asm_reg dst,asm_cc cc){int flags;
+	flags=dst>>3&1;
+	if(flags)asm_o(REX|flags);
 	asm_o(0x0F);
-	asm_o(jcc);
-	asm_i(rel,4);
+	asm_o(0x90|cc);
+	asm_o(0xC0|dst&7);
+	ASM_FPF("set%s %s\n",asm_cc2s[cc],asm_reg2s[dst]);
 }
-void asm_jz(asm_i32 rel){
-	asm_jcc(asm_Jcc_jz,rel);
+void asm_jcc(asm_cc cc,asm_i32 off){
+	ASM_FPF("j%-3s %i\n",asm_cc2s[cc],off);
+
+	asm_o(0x0F);
+	asm_o(0x80|cc);
+	asm_i(off,4);
 }
-void asm_jnz(asm_i32 rel){
-	asm_jcc(asm_Jcc_jnz,rel);
+void asm_jz(asm_i32 off){
+	asm_jcc(asm_cc_z,off);
 }
-void asm_jl(asm_i32 rel){
-	asm_jcc(asm_Jcc_jl,rel);
+void asm_jnz(asm_i32 off){
+	asm_jcc(asm_cc_nz,off);
 }
 
 
