@@ -1,15 +1,6 @@
 /*
-aurora
-saxon
-gus
-galleon
-malta
-seaslug
-cslug
-"Cometh The Hour Cometh The Man", Robinhood
-See:
-https://wiki.osdev.org/X86-64_Instruction_Encoding */
-
+https://wiki.osdev.org/X86-64_Instruction_Encoding
+*/
 
 #if defined(_MSC_VER)
 typedef __int64 asm_i64;
@@ -29,8 +20,8 @@ typedef int asm_reg;
 #define ASM_FPF(...)
 #endif
 
-/* registers are in order, to be used with instructions
-directly... number of register must be power of 2 */
+
+/* number of register must be power of 2 */
 #define GPRDEF(_) \
 _(rax, eax)_(rcx, ecx)_(rdx, edx)_(rbx, ebx)\
 _(rsp, esp)_(rbp, ebp)_(rsi, esi)_(rdi, edi)\
@@ -75,56 +66,57 @@ enum{
 #define REX 0x40
 #define REX_W (REX|0x08)
 
-
 void asm_o(int y);
 void asm_i(asm_i64 x,int y);
 void asm_err(char *msg){
 	fputs(msg,stderr);
 }
 void asm_push(asm_reg reg){int flags;
-	ASM_FPF("push %s\n",asm_reg2s[reg]);
 	flags=reg>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x50+(reg&7));
+	ASM_FPF("push %s\n",asm_reg2s[reg]);
 }
-void asm_pop(asm_reg reg){
+void asm_pop(asm_reg reg){int flags;
+	flags=reg>>3&1;
+	if(flags)asm_o(REX|flags);
+	asm_o(0x58+(reg&7));
 	ASM_FPF("pop %s\n",asm_reg2s[reg]);
-	asm_o(0x58+reg);
 }
 void asm_ret(){
-	ASM_FPF("ret\n");
 	asm_o(0xC3);
+	ASM_FPF("ret\n");
 }
 void asm_leave(){
-	ASM_FPF("leave\n");
 	asm_o(0xC9);
+	ASM_FPF("leave\n");
 }
-void asm_jcall(asm_i32 dsp){
-	ASM_FPF("jcall %i\n",dsp);
+void asm_jcall(asm_i32 off){
 	asm_o(0xE8);
-	asm_i(dsp,4);
+	asm_i(off,4);
+	ASM_FPF("jcall %i\n",off);
 }
 void asm_call(asm_reg reg){
-	ASM_FPF("call %s\n",asm_reg2s[reg]);
 	asm_o(0xFF);
 	asm_o(0xC0|0x02<<3|reg&7);
+	ASM_FPF("call %s\n",asm_reg2s[reg]);
 }
 void asm_test(asm_reg dst,asm_reg src,int flags){
-	ASM_FPF("test %s, %s\n",asm_reg2s[dst],asm_reg2s[src]);
 	flags|=src>>1&4|dst>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x85);
 	asm_o(0xC0|(src&7)<<3|dst&7);
+	ASM_FPF("test %s, %s\n",asm_reg2s[dst],asm_reg2s[src]);
 }
 void asm_testq(asm_reg dst,asm_reg src){
 	asm_test(dst,src,REX_W);
 }
 void asm_cmp(asm_reg dst,asm_i32 src,int flags){
-	ASM_FPF("cmp%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
 	flags|=src>>1&4|dst>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x39);
 	asm_o(0xC0|(src&7)<<3|dst&7);
+	ASM_FPF("cmp%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
 }
 void asm_cmpq(asm_reg reg,asm_i32 src){
 	asm_cmp(reg,src,REX_W);
@@ -135,22 +127,25 @@ void asm_cmpd(asm_reg reg,asm_i32 src){
 // void asm_movsxd(asm_reg dst,asm_reg src){
 // }
 void asm_mov(asm_reg dst,asm_reg src,int flags){
-	flags|=(~dst|~src)&16>>1|src>>1&4|dst>>3&1;
+	/* now we're experimenting with 32 bit register
+	names as a way to select the operand size... */
+	flags|=(~dst|~src)>>1&8|src>>1&4|dst>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x89);
 	asm_o(0xC0|(src&7)<<3|dst&7);
 	ASM_FPF("mov %s, %s\n",asm_reg2s[dst],asm_reg2s[src]);
 }
-void asm_moveq(asm_reg dst,asm_reg src){
+void asm_movq(asm_reg dst,asm_reg src){
 	asm_mov(dst,src,REX_W);
 }
 void asm_load(asm_reg dst,asm_reg src,asm_i32 off,int flags){
-	ASM_FPF("mov%c %s, [%s%+i]\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src],off);
 	flags|=dst>>1&4|src>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x8B);
 	asm_o(0x80>>((asm_i8)off==off)|(dst&7)<<3|src&7);
+	if((dst&7)==asm_rsp)asm_o(0x24);
 	asm_i(off,4>>((asm_i8)off==off)*2);
+	ASM_FPF("mov %s, %cWORD PTR[%s%+i]\n",asm_reg2s[dst],flags&REX_W?'Q':'D',asm_reg2s[src],off);
 }
 void asm_loadd(asm_reg dst,asm_reg src,asm_reg off){
 	asm_load(dst,src,off,0);
@@ -159,12 +154,13 @@ void asm_loadq(asm_reg dst,asm_reg src,asm_reg off){
 	asm_load(dst,src,off,REX_W);
 }
 void asm_store(asm_reg dst,asm_i32 off,asm_reg src,int flags){
-	ASM_FPF("mov%c [%s%+i], %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],off,asm_reg2s[src]);
 	flags|=src>>1&4|dst>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x89);
 	asm_o(0x80>>((asm_i8)off==off)|(src&7)<<3|dst&7);
+	if((dst&7)==asm_rsp)asm_o(0x24);
 	asm_i(off,4>>((asm_i8)off==off)*2);
+	ASM_FPF("mov %cWORD PTR[%s%+i], %s\n",flags&REX_W?'Q':'D',asm_reg2s[dst],off,asm_reg2s[src]);
 }
 void asm_stored(asm_reg dst,asm_i32 off,asm_reg src){
 	asm_store(dst,off,src,0);
@@ -177,9 +173,10 @@ void asm_storei(asm_reg dst,asm_i32 off,asm_i64 src,int flags){
 	if(flags)asm_o(REX|flags);
 	asm_o(0xC7);
 	asm_o(0x80>>((asm_i8)off==off)|dst&7);
+	if((dst&7)==asm_rsp)asm_o(0x24);
 	asm_i(off,4>>((asm_i8)off==off)*2);
 	asm_i(src,8>>((asm_i32)src==src));
-	ASM_FPF("mov%c [%s%+i], #%lli\n",flags&REX_W?'q':'d',asm_reg2s[dst],off,src);
+	ASM_FPF("mov %cWORD PTR[%s%+i], #%lli\n",flags&REX_W?'Q':'D',asm_reg2s[dst],off,src);
 }
 void asm_storedi(asm_reg dst,asm_i32 off,asm_i64 src){
 	asm_storei(dst,off,src,0);
@@ -189,7 +186,6 @@ void asm_storeqi(asm_reg dst,asm_i32 off,asm_i64 src){
 }
 void asm_loadi(asm_reg dst,asm_i64 src,int flags){
 	flags|=((asm_i32)src!=src)<<3|(dst>>3&1);
-	ASM_FPF("mov%c %s, %llx\n",flags&REX_W?'q':'d',asm_reg2s[dst],src);
 	if(flags)asm_o(REX|flags);
 	if((asm_i32)src==src){
 		asm_o(0xC7);
@@ -198,6 +194,7 @@ void asm_loadi(asm_reg dst,asm_i64 src,int flags){
 		asm_o(0xB8|(dst&7));
 	}
 	asm_i(src,8>>((asm_i32)src==src));
+	ASM_FPF("mov %s, %lli\n",asm_reg2s[(dst&15)<<16*(~flags&REX_W)],src);
 }
 void asm_loadqi(asm_reg dst,asm_i64 src){
 	asm_loadi(dst,src,REX_W);
@@ -222,6 +219,7 @@ void asm_subi(asm_reg dst,asm_i64 src,int flags){
 	asm_o(0x81);
 	asm_o(0xC0|0x05<<3|dst);
 	asm_i(src,4<<((asm_i32)src!=src));
+	ASM_FPF("sub%c %s, %lli\n",flags&REX_W?'q':'d',asm_reg2s[dst],src);
 }
 void asm_subdi(asm_reg dst,asm_i64 src){
 	return asm_subi(dst,src,0);
@@ -248,6 +246,7 @@ void asm_addi(asm_reg dst,asm_i64 src,int flags){
 	asm_o(0x81);
 	asm_o(0xC0|0x00<<3|dst);
 	asm_i(src,4<<((asm_i32)src!=src));
+	ASM_FPF("add%c %s, %lli\n",flags&REX_W?'q':'d',asm_reg2s[dst],src);
 }
 void asm_addqi(asm_reg dst,asm_i64 src){
 	asm_addi(dst,src,REX_W);
@@ -256,11 +255,11 @@ void asm_adddi(asm_reg dst,asm_i64 src){
 	asm_addi(dst,src,0);
 }
 void asm_add(asm_reg dst,asm_reg src,int flags){
-	ASM_FPF("add%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
 	flags|=dst>>1&4|src>>3&1;
 	if(flags)asm_o(REX|flags);
 	asm_o(0x03);
 	asm_o(0xC0|(dst&7)<<3|src&7);
+	ASM_FPF("add%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[src]);
 }
 void asm_addd(asm_reg dst,asm_reg src){
 	asm_add(dst,src,0);
@@ -269,11 +268,11 @@ void asm_addq(asm_reg dst,asm_reg src){
 	asm_add(dst,src,REX_W);
 }
 void asm_shr(asm_reg dst,int flags){
-	ASM_FPF("shr%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[asm_rcx]);
 	flags|=dst>>1&4;
 	if(flags)asm_o(REX|flags);
 	asm_o(0xD3);
 	asm_o(0xC0|5<<3|dst&7);
+	ASM_FPF("shr%c %s, %s\n",flags&REX_W?'q':'d',asm_reg2s[dst],asm_reg2s[asm_rcx]);
 }
 void asm_shrd(asm_reg dst){
 	asm_shr(dst,0);
@@ -382,7 +381,24 @@ void asm_jnz(asm_i32 off){
 
 
 
-/* Some quick notes for encoding:
+/*
+
+Instructions that need patching have their integer
+payloads after the instruction itself, so just
+get a pointer after you've emitted the instruction
+and use that:
+((i32*)(bcptr))[-1] = xxx
+
+Notes:
+So the x64 arch doesn't dictate the calling convention,
+for instances, windows x64 has its own.
+So for debugging to work properly at least on a windows
+based debugger, you have to adhere to what the
+debugger would expect, this also includes the prologue and
+epilogue of a function so that it can traverse the call
+stack properly.
+
+Some quick notes for encoding:
 
 Variable layout of an x64 instruction, each
 term is a byte, () means required:
@@ -408,5 +424,17 @@ mode. Layout is as follows:
    7..6   MOD: Addressing mode
    5..3   reg: Reg or Opcode extension
    2..0   r/m: Reg or Memory
+
+aurora
+saxon
+gus
+galleon
+malta
+seaslug
+cslug
+giblet,gibler
+marlin
+"Cometh The Hour Cometh The Man", Robinhood
+
 */
 

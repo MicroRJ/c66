@@ -1,0 +1,25 @@
+void eq(a,b){
+	if(a!=b){
+		printf("error: %i != %i\n",a,b);
+	}
+}
+for(i=0;i<10;i=i+1){
+	printf("i: %i\n",i);
+}
+for(i=0;i<10;i=i+1){
+	if(i<5)continue;
+	break;
+}
+eq(5,i);
+for(i=0;i<10;i=i+1){
+	if(i>=5)break;
+}
+eq(5,i);
+for(i=0;i<10;i=i+1);
+eq(10,i);
+for(i=0;i<=9;i=i+1);
+eq(10,i);
+for(i=10;i>0;i=i-1);
+eq(0,i);
+for(i=10;i>=1;i=i-1);
+eq(0,i);

@@ -1,224 +1,272 @@
-printf("welcome\n");
-// b=33;
-// c=77;
-// p=&a;
-// v=p[-16];
-// printf("33: %i\n",v);
-
-for(i=0;i<10;i=i+1){
-	printf("welcome\n");
-}
-
-a=0||2<3;
-a=1&&3<2;
-a=0||1&&3<2||1;
-
-printf("a: %i\n",a);
-a=2<3;
-a=1&&2<3;
-a=1<<7;
-a=a>>7;
-printf("a: %lli\n",a);
-
-void mul(a,b){
-	c=0;
-	for(i=0;i<b;i=i+1){
-		c=c+a;
-	}
-	return c;
-}
-a=mul(2,256);
-printf("mul(2,256): %lli\n",a);
-
-// a=malloc(1024);
-// j=0;
-// for(i=0;i<128;i=i+1){
-// 	a[j]=i;
-// 	b=a[j];
-// 	printf("a[%lli]: %lli\n",j,b);
-// 	j=j+8;
+// void foo(){
+// 	printf("foo\n");
 // }
-
-// b=a[1];
-// printf("malloc: %i\n",b);
-// b=1;
-// printf("b: %lli\n",b);
-// x=&b;
-// x[0]=777;
-// printf("b: %lli\n",b);
-// x[8]=7;
-// b=b;
-// printf("a: %i\n",b);
-// x[16]=7;
-// printf("b: %i\n", b);
-// printf("&a=%lli\n",x);
-// x=&b;
-// printf("&b=%lli\n",x);
-// x=&c;
-// printf("&c=%lli\n",x);
-// printf("&a=%x-%x, %x\n",a,b,c);
-// macros are not online yet
-// #define NAME(a,b,c) a,b,c
-// printf("welcome %i %i %i",NAME(1,2,3));
-
-p=malloc(256);
-_strtime(p);
-
-// this works
-// f=fopen("some_test_file.txt","wb");
-// fprintf(f,"-- %s, test write to file.\n",p);
-// fclose(f);
-
-free(p);
-
-
-z=0;
-printf("%i %i %i %i\n",0,1,2,3,4,5,6,7);
-
-//test write to all variables...
-a=0;b=1;c=2;d=3;e=4;f=5;g=6;h=7;i=8;j=9;k=10;l=11;m=12;n=13;o=14;p=15;q=16;r=17;s=18;t=19;u=20;v=21;w=22;x=23;y=24;z=25;
-// printf("int ");
-// for(i=0;i<26;i=i+1){
-// 	if(i)printf(",");
-// 	a='a'+i;
-// 	printf("%c=%i",a,i);
+// foo();
+i64 a=1+2;//8
+i64 b=2;//16
+i64 c=3;//24
+i64 d=4;//32
+i64 e=5;//40
+i64 f=6;//48
+i64 g=7;//64
+i64 h=8;//72
+printf("%i%i%i%i %i%i%i%i\n",1,2,3,4,5,6,7,8);
+// i64 a=1;
+// i64 b=2;
+// i64 c=3;
+// i64 d=4;
+// i64 e=5;
+// i64 f=6;
+// i64 z=7;
+// printf("d: %i\n", d);
+// printf("welcome: %i%i%i %i%i%i\n",a,b,c,d,e,f);
+// printf("123456: %i%i%i%i%i%i\n",1,2,3,4,5,6);
+// void foo(int a,int b,int c,int d, int e, int f){
+// 	printf("1234==%i%i%i%i\n",a,b,c,d);
+// 	printf("123456: %i%i%i%i%i%i\n",1,2,3,4,5,6);
+// 	// printf("%i %i %i %i %i %i\n",a,b,c,d,e,f);
+// 	// printf("%i %i %i %i\n",a,b,c,d);
+// 	// printf("%i %i\n",e,f);
 // }
-// printf("\n");
-printf("welp, printf works\n");
+// foo(1,2,3,4,5,6);
+
+// i64 local_i64 = 64;
+// i32 local_i32 = 32;
+// i16 local_i16 = 16;
+// i8  local_i8  = 8;
 
 
-void foo(){
-	printf("foo()\n");
-	return;
-}
-foo();
-if(2<1)printf("0: 1\n");
-if(2>1)printf("1: 1\n");
-
-a=1<2;
-printf("1: %i\n",a);
-a=2<1;
-printf("0: %i\n",a);
-
-void fa(a){ printf("a"); return a; }
-void fb(a){ printf("b"); return a; }
-void fc(a){ printf("c"); return a; }
-
-printf("a: ");
-a=fa(1)||fb(0);
-printf("\nabc: ");
-a=fa(0)||fb(0)||fc(1);
-printf("\na: ");
-a=fa(1)||(fb(1)&&fc(1));
-printf("\nabc: ");
-a=fa(0)||fb(1)&&fc(1);
-printf("\n");
-// a=fb(2)*fc(3);
-// printf("\n");
-
-a=0||0||0||0||1;
-printf("1: %i (|| test)\n",a);
-
-a=__LINE__;
-//1
-//2
-//3
-b=__LINE__-a;
-printf("4: %i (line macro)\n",b);
-
-
-if(1&&3||7)printf("1: 1\n");
-
-a=(0||0)&&1;
-printf("[%i] 0: %i (&& || interplay test)\n",__LINE__,a);
-a=(1||0)&&1;
-printf("1: %i (&& || interplay test)\n",a);
-a=1||0||0||0||0;
-printf("1: %i (|| test)\n",a);
-a=1&&0&&0;
-printf("0: %i (&& test)\n",a);
-a=0&&0&&1;
-printf("0: %i (&& test)\n",a);
-
-printf("0: %i\n",0);
-printf("1: %i\n",1);
-printf("3: %i\n",3);
-printf("7: %i\n",7);
-printf("10: %i\n",10);
-printf("100: %i\n",100);
-printf("777: %i\n",777);
-
-void identity(a){return a;}
-
-a=identity(3);
-printf("3: %i (call test)\n",a);
-a=identity(7);
-printf("7: %i (call test)\n",a);
-
-for(a=10;a;a=a-1);
-printf("0: %i (loop test)\n",a);
-
-if(1)printf("1: 1 (if test)\n");
-if(0)printf("0: 1 (if test) [failed]\n");
-
-
-void fib(a){
-	b=a<2;
-	if(b){
-		return a;
-	}
-	b=a-2;
-	c=a-1;
-	b=fib(b);
-	c=fib(c);
-	return b+c;
-}
-void testfib(a,b){
-	c=fib(a);
-	printf("%i: fib(%i) %i\n",b,a,c);
-}
-testfib(0,0);
-testfib(1,1);
-testfib(2,1);
-testfib(3,2);
-testfib(4,3);
-testfib(10,55);
-testfib(25,75025);
-testfib(30,832040);
-testfib(35,9227465);
-testfib(40,102334155);
-//airplane mode
-// testfib(65,17167680177565);
-
-//expressions too complex because they
-//require more than 2 registers...
-// a=(1+2)+3+4;
-// a=(1+2)+(3+4);
-// a=(1+2)*(3+4);
-a=-10+1;
-a=10-11;
-a=11-10;
-a=1+2+3-15;
-a=(((1+2)+3)+4)+5;
-a=1+(2+(3+(4+5)));
-printf("a: %i\n",a);
-a=1+2+3+4+5;
-
-
-MessageBoxA(0,"All Test Complete","c66 Status",0);
-
-
-// MessageBoxA :: __winproc(message:LPCSTR,title:LPCSTR,type:DWORD) ? i32
-
-// main :: (a:i32, b:i32, c:i32) ? i32 {
-// 	for i:=1, i<32, i=i+1 ? {
-// 		printf();
+// printf("abc: ");
+// void foo(){
+// 	void a(){
+// 		printf("a");
+// 		void b(){
+// 			printf("b");
+// 			void c(){
+// 				printf("c");
+// 			}
+// 			c();
+// 		}
+// 		b();
 // 	}
+// 	a();
+// 	printf("\n");
 // }
+// foo();
+// // b=33;
+// // c=77;
+// // p=&a;
+// // v=p[-16];
+// // printf("33: %i\n",v);
 
-// b=&b;
-// c=&c;
-// printf("&a: %llx\n",a);
-// printf("&b: %llx\n",b);
-// printf("&c: %llx\n",c);
-// printf("a[0]: %lli\n",x);
+// a=0||2<3;
+// a=1&&3<2;
+// a=0||1&&3<2||1;
+
+// printf("a: %i\n",a);
+// a=2<3;
+// a=1&&2<3;
+// a=1<<7;
+// a=a>>7;
+// printf("a: %lli\n",a);
+
+// int mul(int a,int b){
+// 	c=0;
+// 	for(i=0;i<b;i=i+1){
+// 		c=c+a;
+// 	}
+// 	return c;
+// }
+// a=mul(2,256);
+// printf("mul(2,256): %lli\n",a);
+
+// // a=malloc(1024);
+// // j=0;
+// // for(i=0;i<128;i=i+1){
+// // 	a[j]=i;
+// // 	b=a[j];
+// // 	printf("a[%lli]: %lli\n",j,b);
+// // 	j=j+8;
+// // }
+
+// // b=a[1];
+// // printf("malloc: %i\n",b);
+// // b=1;
+// // printf("b: %lli\n",b);
+// // x=&b;
+// // x[0]=777;
+// // printf("b: %lli\n",b);
+// // x[8]=7;
+// // b=b;
+// // printf("a: %i\n",b);
+// // x[16]=7;
+// // printf("b: %i\n", b);
+// // printf("&a=%lli\n",x);
+// // x=&b;
+// // printf("&b=%lli\n",x);
+// // x=&c;
+// // printf("&c=%lli\n",x);
+// // printf("&a=%x-%x, %x\n",a,b,c);
+// // macros are not online yet
+// // #define NAME(a,b,c) a,b,c
+// // printf("welcome %i %i %i",NAME(1,2,3));
+
+// p=malloc(256);
+// _strtime(p);
+
+// // this works
+// // f=fopen("some_test_file.txt","wb");
+// // fprintf(f,"-- %s, test write to file.\n",p);
+// // fclose(f);
+
+// free(p);
+
+
+// z=0;
+// printf("%i %i %i %i\n",0,1,2,3,4,5,6,7);
+
+// //test write to all variables...
+// a=0;b=1;c=2;d=3;e=4;f=5;g=6;h=7;i=8;j=9;k=10;l=11;m=12;n=13;o=14;p=15;q=16;r=17;s=18;t=19;u=20;v=21;w=22;x=23;y=24;z=25;
+// // printf("int ");
+// // for(i=0;i<26;i=i+1){
+// // 	if(i)printf(",");
+// // 	a='a'+i;
+// // 	printf("%c=%i",a,i);
+// // }
+// // printf("\n");
+// printf("welp, printf works\n");
+
+
+// void foo(){
+// 	printf("foo()\n");
+// }
+// foo();
+// if(2<1)printf("0: 1\n");
+// if(2>1)printf("1: 1\n");
+
+// a=1<2;
+// printf("1: %i\n",a);
+// a=2<1;
+// printf("0: %i\n",a);
+
+// int fa(int a){ printf("a"); return a; }
+// int fb(int a){ printf("b"); return a; }
+// int fc(int a){ printf("c"); return a; }
+
+// printf("a: ");
+// a=fa(1)||fb(0);
+// printf("\nabc: ");
+// a=fa(0)||fb(0)||fc(1);
+// printf("\na: ");
+// a=fa(1)||(fb(1)&&fc(1));
+// printf("\nabc: ");
+// a=fa(0)||fb(1)&&fc(1);
+// printf("\n");
+// // a=fb(2)*fc(3);
+// // printf("\n");
+
+// a=0||0||0||0||1;
+// printf("1: %i (|| test)\n",a);
+
+// a=__LINE__;
+// //1
+// //2
+// //3
+// b=__LINE__-a;
+// printf("4: %i (line macro)\n",b);
+
+
+// if(1&&3||7)printf("1: 1\n");
+
+// a=(0||0)&&1;
+// printf("[%i] 0: %i (&& || interplay test)\n",__LINE__,a);
+// a=(1||0)&&1;
+// printf("1: %i (&& || interplay test)\n",a);
+// a=1||0||0||0||0;
+// printf("1: %i (|| test)\n",a);
+// a=1&&0&&0;
+// printf("0: %i (&& test)\n",a);
+// a=0&&0&&1;
+// printf("0: %i (&& test)\n",a);
+
+// printf("0: %i\n",0);
+// printf("1: %i\n",1);
+// printf("3: %i\n",3);
+// printf("7: %i\n",7);
+// printf("10: %i\n",10);
+// printf("100: %i\n",100);
+// printf("777: %i\n",777);
+
+// int identity(int a){return a;}
+
+// a=identity(3);
+// printf("3: %i (call test)\n",a);
+// a=identity(7);
+// printf("7: %i (call test)\n",a);
+
+
+
+// if(1)printf("1: 1 (if test)\n");
+// if(0)printf("0: 1 (if test) [failed]\n");
+
+
+// int fib(int a){
+// 	b=a<2;
+// 	if(b){
+// 		return a;
+// 	}
+// 	b=a-2;
+// 	c=a-1;
+// 	b=fib(b);
+// 	c=fib(c);
+// 	return b+c;
+// }
+// int testfib(int a,int b){
+// 	c=fib(a);
+// 	printf("%i: fib(%i) %i\n",b,a,c);
+// }
+// testfib(0,0);
+// testfib(1,1);
+// testfib(2,1);
+// testfib(3,2);
+// testfib(4,3);
+// testfib(10,55);
+// testfib(25,75025);
+// testfib(30,832040);
+// testfib(35,9227465);
+// testfib(40,102334155);
+// //airplane mode
+// // testfib(65,17167680177565);
+
+// //expressions too complex because they
+// //require more than 2 registers...
+// // a=(1+2)+3+4;
+// // a=(1+2)+(3+4);
+// // a=(1+2)*(3+4);
+// a=-10+1;
+// a=10-11;
+// a=11-10;
+// a=1+2+3-15;
+// a=(((1+2)+3)+4)+5;
+// a=1+(2+(3+(4+5)));
+// printf("a: %i\n",a);
+// a=1+2+3+4+5;
+
+
+// MessageBoxA(0,"All Test Complete","c66 Status",0);
+
+
+// // MessageBoxA :: __winproc(message:LPCSTR,title:LPCSTR,type:DWORD) ? i32
+
+// // main :: (a:i32, b:i32, c:i32) ? i32 {
+// // 	for i:=1, i<32, i=i+1 ? {
+// // 		printf();
+// // 	}
+// // }
+
+// // b=&b;
+// // c=&c;
+// // printf("&a: %llx\n",a);
+// // printf("&b: %llx\n",b);
+// // printf("&c: %llx\n",c);
+// // printf("a[0]: %lli\n",x);
